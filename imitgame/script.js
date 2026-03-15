@@ -7,7 +7,7 @@
 // ─────────────────────────────────────────────────────
 const SUPABASE_URL = 'https://uhsnnoclavjvdmpatkji.supabase.co';
 const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVoc25ub2NsYXZqdmRtcGF0a2ppIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM1ODk3MzUsImV4cCI6MjA4OTE2NTczNX0.0JD5GCzYuPj2AoYBWya-jvpg426aFs0XXYB9tj0K0eM';
-const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
 // ─────────────────────────────────────────────────────
 // 2. AVATARS
@@ -619,7 +619,7 @@ function copyCode(){
 
 async function leaveSalon(){
   if(state.playerId){
-    await supabase.from('players').delete().eq('id',state.playerId);
+    await db.from('players').delete().eq('id',state.playerId);
   }
   unsubscribeRealtime();
   state.salonId=null;state.salonCode=null;state.playerId=null;
@@ -647,7 +647,7 @@ function subscribeToSalon(){
 
 function unsubscribeRealtime(){
   if(state.realtimeChannel){
-    supabase.removeChannel(state.realtimeChannel);
+    db.removeChannel(state.realtimeChannel);
     state.realtimeChannel=null;
   }
 }
@@ -675,7 +675,7 @@ async function handlePlayersUpdate(){
   // Vérifie si tout le monde a joué → passe au vote
   const allPlayed=state.players.every(p=>p.has_played);
   if(allPlayed&&state.isHost&&state.players.length>0){
-    await supabase.from('salons').update({status:'voting'}).eq('id',state.salonId);
+    await db.from('salons').update({status:'voting'}).eq('id',state.salonId);
   }
 }
 
@@ -683,7 +683,7 @@ async function handlePlayersUpdate(){
 // 24. LANCER LA PARTIE (hôte)
 // ─────────────────────────────────────────────────────
 async function startMultiGame(){
-  await supabase.from('salons').update({status:'playing'}).eq('id',state.salonId);
+  await db.from('salons').update({status:'playing'}).eq('id',state.salonId);
 }
 
 // ─────────────────────────────────────────────────────
@@ -742,18 +742,18 @@ async function submitPerformance(){
   const ext=state.audioBlob.type.includes('mp4')?'mp4':state.audioBlob.type.includes('ogg')?'ogg':'webm';
   const filename=`${state.salonId}/${state.playerId}.${ext}`;
 
-  const{data:uploadData,error:uploadError}=await supabase.storage
+  const{data:uploadData,error:uploadError}=await db.storage
     .from('audio-performances')
     .upload(filename, state.audioBlob, {contentType:state.audioBlob.type, upsert:true});
 
   let audioPublicUrl=null;
   if(!uploadError){
-    const{data:{publicUrl}}=supabase.storage.from('audio-performances').getPublicUrl(filename);
+    const{data:{publicUrl}}=db.storage.from('audio-performances').getPublicUrl(filename);
     audioPublicUrl=publicUrl;
   }
 
   // Marque le joueur comme ayant joué
-  await supabase.from('players').update({has_played:true, audio_url:audioPublicUrl||''}).eq('id',state.playerId);
+  await db.from('players').update({has_played:true, audio_url:audioPublicUrl||''}).eq('id',state.playerId);
 
   // Passe au joueur suivant
   state.currentTurnIndex++;
@@ -825,7 +825,7 @@ async function castMultiVote(points){
   if(state.hasVoted||state.currentVoteTarget?.id===state.playerId)return;
   state.hasVoted=true;
 
-  await supabase.from('votes').insert({
+  await db.from('votes').insert({
     salon_id:state.salonId,
     voter_id:state.playerId,
     target_id:state.currentVoteTarget.id,
@@ -834,14 +834,14 @@ async function castMultiVote(points){
 
   // Met à jour le score du joueur voté
   const newScore=(state.currentVoteTarget.score||0)+points;
-  await supabase.from('players').update({score:newScore}).eq('id',state.currentVoteTarget.id);
+  await db.from('players').update({score:newScore}).eq('id',state.currentVoteTarget.id);
 
   voteQueueIndex++;
   showNextVote();
 }
 
 async function finalizeResults(){
-  await supabase.from('salons').update({status:'finished'}).eq('id',state.salonId);
+  await db.from('salons').update({status:'finished'}).eq('id',state.salonId);
 }
 
 // ─────────────────────────────────────────────────────
@@ -874,9 +874,9 @@ async function showMultiResults(){
 async function playAgainMulti(){
   if(state.isHost){
     // Réinitialise les joueurs et relance
-    await supabase.from('players').update({has_played:false,audio_url:null,score:0}).eq('salon_id',state.salonId);
-    await supabase.from('votes').delete().eq('salon_id',state.salonId);
-    await supabase.from('salons').update({status:'waiting'}).eq('id',state.salonId);
+    await db.from('players').update({has_played:false,audio_url:null,score:0}).eq('salon_id',state.salonId);
+    await db.from('votes').delete().eq('salon_id',state.salonId);
+    await db.from('salons').update({status:'waiting'}).eq('id',state.salonId);
     state.currentTurnIndex=0;
     enterWaitingRoom();
   } else {
