@@ -589,8 +589,16 @@ async function enterWaitingRoom(salon){
   document.getElementById('host-controls').classList.toggle('hidden', !state.isHost);
   document.getElementById('guest-controls').classList.toggle('hidden', state.isHost);
   showScreen('screen-waiting');
-  await refreshPlayersList();
+
+  // S'abonne AVANT de rafraîchir pour ne rien rater
   subscribeToSalon();
+  await refreshPlayersList();
+
+  // Vérifie si la partie est déjà en cours (cas où on rejoint tard)
+  const{data:currentSalon}=await db.from('salons').select('*').eq('id',state.salonId).single();
+  if(currentSalon && currentSalon.status !== 'waiting'){
+    handleSalonUpdate(currentSalon);
+  }
 }
 
 async function refreshPlayersList(){
@@ -626,40 +634,50 @@ async function leaveSalon(){
 // ─────────────────────────────────────────────────────
 function subscribeToSalon(){
   unsubscribeRealtime();
+
+  // Polling de secours toutes les 3 secondes au cas où le realtime rate quelque chose
+  let lastStatus = '';
+  const pollInterval = setInterval(async () => {
+    if(!state.salonId){ clearInterval(pollInterval); return; }
+    const{data:salon}=await db.from('salons').select('*').eq('id',state.salonId).single();
+    if(!salon){ clearInterval(pollInterval); return; }
+    if(salon.status !== lastStatus){
+      lastStatus = salon.status;
+      handleSalonUpdate(salon);
+    }
+  }, 3000);
+
   state.realtimeChannel = db
     .channel(`salon-${state.salonId}`)
     .on('postgres_changes',{event:'*',schema:'public',table:'players',filter:`salon_id=eq.${state.salonId}`},
-      async (payload) => {
-        // Recharge tous les joueurs
+      async () => {
         const{data:players}=await db.from('players').select('*').eq('salon_id',state.salonId).order('created_at');
         if(!players) return;
         state.players = players;
 
-        // Si on est en salle d'attente, rafraîchit la liste
         if(document.getElementById('screen-waiting').classList.contains('active')){
           refreshPlayersList();
           return;
         }
 
-        // Si la partie est en cours, vérifie si c'est mon tour ou si tout le monde a joué
-        if(document.getElementById('screen-game').classList.contains('active') ||
-           document.getElementById('screen-waiting').classList.contains('active')){
-
-          const allPlayed = players.every(p=>p.has_played);
-          if(allPlayed && state.isHost){
-            await db.from('salons').update({status:'voting', current_vote_index:0}).eq('id',state.salonId);
-          } else if(!allPlayed){
-            startNextTurn();
-          }
+        const allPlayed = players.every(p=>p.has_played);
+        if(allPlayed && state.isHost){
+          await db.from('salons').update({status:'voting', current_vote_index:0}).eq('id',state.salonId);
+        } else if(!allPlayed){
+          startNextTurn();
         }
       })
     .on('postgres_changes',{event:'UPDATE',schema:'public',table:'salons',filter:`id=eq.${state.salonId}`},
       (payload)=>{ handleSalonUpdate(payload.new); })
     .subscribe();
+
+  // Stocke le polling pour pouvoir l'arrêter
+  state.pollInterval = pollInterval;
 }
 
 function unsubscribeRealtime(){
   if(state.realtimeChannel){ db.removeChannel(state.realtimeChannel); state.realtimeChannel=null; }
+  if(state.pollInterval){ clearInterval(state.pollInterval); state.pollInterval=null; }
 }
 
 async function handleSalonUpdate(salon){
