@@ -505,13 +505,13 @@ function leaveLobby(){
 async function selectLobbyVideo(video){
   showToast('Création du salon...');
   const code = generateCode();
-  const { data: salon, error } = await supabase
+  const { data: salon, error } = await db
     .from('salons')
     .insert({ code, host_name: state.pseudo, host_avatar: state.avatar, video_id: video.id, status: 'waiting' })
     .select().single();
   if(error){ showToast('Erreur lors de la création 😕'); console.error(error); return; }
 
-  const { data: player, error: pe } = await supabase
+  const { data: player, error: pe } = await db
     .from('players')
     .insert({ salon_id: salon.id, pseudo: state.pseudo, avatar: state.avatar, is_host: true })
     .select().single();
@@ -538,11 +538,11 @@ async function joinSalon(){
   const code=document.getElementById('join-code-input').value.trim().toUpperCase();
   if(code.length<4){showJoinError();return;}
 
-  const{data:salon,error}=await supabase
+  const{data:salon,error}=await db
     .from('salons').select('*').eq('code',code).eq('status','waiting').single();
   if(error||!salon){showJoinError();return;}
 
-  const{data:player,error:pe}=await supabase
+  const{data:player,error:pe}=await db
     .from('players')
     .insert({salon_id:salon.id,pseudo:state.pseudo,avatar:state.avatar,is_host:false})
     .select().single();
@@ -587,7 +587,7 @@ async function enterWaitingRoom(){
 }
 
 async function refreshPlayersList(){
-  const{data:players}=await supabase
+  const{data:players}=await db
     .from('players').select('*').eq('salon_id',state.salonId).order('created_at');
   if(!players)return;
   state.players=players;
@@ -632,7 +632,7 @@ async function leaveSalon(){
 // ─────────────────────────────────────────────────────
 function subscribeToSalon(){
   unsubscribeRealtime();
-  state.realtimeChannel = supabase
+  state.realtimeChannel = db
     .channel(`salon-${state.salonId}`)
     .on('postgres_changes',{event:'INSERT',schema:'public',table:'players',filter:`salon_id=eq.${state.salonId}`},
       ()=>{ refreshPlayersList(); })
@@ -655,7 +655,7 @@ function unsubscribeRealtime(){
 async function handleSalonUpdate(salon){
   if(salon.status==='playing'){
     // La partie démarre — charge les joueurs et commence
-    const{data:players}=await supabase
+    const{data:players}=await db
       .from('players').select('*').eq('salon_id',state.salonId).order('created_at');
     state.players=players||[];
     state.currentTurnIndex=0;
@@ -668,7 +668,7 @@ async function handleSalonUpdate(salon){
 }
 
 async function handlePlayersUpdate(){
-  const{data:players}=await supabase
+  const{data:players}=await db
     .from('players').select('*').eq('salon_id',state.salonId).order('created_at');
   state.players=players||[];
 
@@ -773,7 +773,7 @@ let voteQueueIndex=0;
 
 async function showMultiVoteScreen(){
   // Recharge les joueurs avec leurs audios
-  const{data:players}=await supabase
+  const{data:players}=await db
     .from('players').select('*').eq('salon_id',state.salonId).order('created_at');
   state.players=players||[];
   voteQueue=state.players.filter(p=>p.audio_url);
@@ -848,7 +848,7 @@ async function finalizeResults(){
 // 28. RÉSULTATS MULTIJOUEUR
 // ─────────────────────────────────────────────────────
 async function showMultiResults(){
-  const{data:players}=await supabase
+  const{data:players}=await db
     .from('players').select('*').eq('salon_id',state.salonId).order('score',{ascending:false});
 
   const list=document.getElementById('multi-result-list');
