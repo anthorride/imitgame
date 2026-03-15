@@ -57,158 +57,7 @@ let currentFilter = 'tous';
 let randomDiff    = 'tous';
 
 // ─────────────────────────────────────────────────────
-// 4. SPECTRE AUDIO — Web Audio API
-// ─────────────────────────────────────────────────────
-let audioCtx              = null;
-let analyser              = null;
-let sourceNode            = null;
-let spectrumAnimId        = null;
-let recordedSpectrum      = [];
-let spectrumRecordIv      = null;
-let spectrumPlaybackIv    = null;
-let spectrumPlaybackIdx   = 0;
-
-const SPECTRUM_BARS = 48;
-const SPECTRUM_MS   = 33; // ~30fps
-
-function initAudioAnalyser() {
-  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-  if (audioCtx.state === 'suspended') audioCtx.resume();
-  if (sourceNode) { try { sourceNode.disconnect(); } catch(e){} sourceNode = null; }
-
-  const videoEl = document.getElementById('main-video');
-  try {
-    sourceNode = audioCtx.createMediaElementSource(videoEl);
-    analyser   = audioCtx.createAnalyser();
-    analyser.fftSize = 256;
-    analyser.smoothingTimeConstant = 0.8;
-    sourceNode.connect(analyser);
-    analyser.connect(audioCtx.destination);
-    return true;
-  } catch(e) {
-    console.warn('Web Audio API:', e);
-    return false;
-  }
-}
-
-function startLiveSpectrum() {
-  stopSpectrum();
-  recordedSpectrum = [];
-  if (!analyser) return;
-
-  const canvas  = document.getElementById('spectrum-canvas');
-  const ctx     = canvas.getContext('2d');
-  const bufLen  = analyser.frequencyBinCount;
-  const dataArr = new Uint8Array(bufLen);
-
-  // Enregistre les frames pour le replay
-  spectrumRecordIv = setInterval(() => {
-    analyser.getByteFrequencyData(dataArr);
-    recordedSpectrum.push(new Uint8Array(dataArr));
-  }, SPECTRUM_MS);
-
-  // Dessin en temps réel
-  function draw() {
-    spectrumAnimId = requestAnimationFrame(draw);
-    analyser.getByteFrequencyData(dataArr);
-    drawSpectrum(ctx, canvas, dataArr, 'live');
-  }
-  draw();
-
-  updateSpectrumUI('🎵 Spectre en direct — mémorise les pics !', 'Observe les formes pour mieux imiter 🎤', 'live');
-}
-
-function startReplaySpectrum() {
-  stopSpectrum();
-  if (!recordedSpectrum.length) {
-    updateSpectrumUI('🎵 Spectre non disponible', 'Regarde la vidéo avec son d\'abord pour enregistrer le spectre', 'idle');
-    return;
-  }
-
-  const canvas = document.getElementById('spectrum-canvas');
-  const ctx    = canvas.getContext('2d');
-  spectrumPlaybackIdx = 0;
-
-  spectrumPlaybackIv = setInterval(() => {
-    if (spectrumPlaybackIdx >= recordedSpectrum.length) spectrumPlaybackIdx = 0;
-    drawSpectrum(ctx, canvas, recordedSpectrum[spectrumPlaybackIdx++], 'replay');
-  }, SPECTRUM_MS);
-
-  updateSpectrumUI('🎯 Spectre original — cale ta voix dessus !', 'Imite les pics et les creux en temps réel 🎤', 'replay');
-}
-
-function drawSpectrum(ctx, canvas, dataArr, mode) {
-  const W = canvas.width, H = canvas.height;
-  ctx.clearRect(0, 0, W, H);
-  ctx.fillStyle = 'rgba(13,13,26,0.5)';
-  ctx.fillRect(0, 0, W, H);
-
-  const barW = (W / SPECTRUM_BARS) - 1.5;
-  const step = Math.floor(dataArr.length / SPECTRUM_BARS);
-
-  for (let i = 0; i < SPECTRUM_BARS; i++) {
-    let sum = 0;
-    for (let j = 0; j < step; j++) sum += dataArr[i * step + j];
-    const avg  = sum / step;
-    const barH = Math.max(2, (avg / 255) * (H - 4));
-    const x    = i * (barW + 1.5);
-    const y    = H - barH;
-    const ratio = avg / 255;
-
-    // Couleur selon mode
-    let color;
-    if (mode === 'live') {
-      const r = Math.round(ratio * 60);
-      const g = Math.round(180 + ratio * 75);
-      const b = Math.round(220 - ratio * 170);
-      color = `rgb(${r},${g},${b})`;
-    } else {
-      const r = Math.round(210 + ratio * 45);
-      const g = Math.round(110 - ratio * 90);
-      const b = 20;
-      color = `rgb(${r},${g},${b})`;
-    }
-
-    ctx.fillStyle = color;
-    if (ctx.roundRect) ctx.roundRect(x, y, barW, barH, 2);
-    else ctx.rect(x, y, barW, barH);
-    ctx.fill();
-
-    // Ligne de crête
-    ctx.fillStyle = mode === 'live' ? 'rgba(150,255,200,0.8)' : 'rgba(255,200,80,0.8)';
-    ctx.fillRect(x, y - 2, barW, 2);
-  }
-}
-
-function updateSpectrumUI(label, hint, mode) {
-  const lEl = document.getElementById('spectrum-label');
-  const hEl = document.getElementById('spectrum-hint');
-  const c   = document.getElementById('spectrum-container');
-  if (lEl) lEl.textContent = label;
-  if (hEl) hEl.textContent = hint;
-  if (c)   { c.classList.remove('mode-live','mode-replay','mode-idle'); c.classList.add(`mode-${mode}`); }
-}
-
-function stopSpectrum() {
-  if (spectrumAnimId)     { cancelAnimationFrame(spectrumAnimId); spectrumAnimId = null; }
-  if (spectrumRecordIv)   { clearInterval(spectrumRecordIv);      spectrumRecordIv = null; }
-  if (spectrumPlaybackIv) { clearInterval(spectrumPlaybackIv);    spectrumPlaybackIv = null; }
-  const canvas = document.getElementById('spectrum-canvas');
-  if (canvas) canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
-  updateSpectrumUI('🎵 Spectre audio', 'Appuie sur ▶ pour voir le spectre en direct', 'idle');
-}
-
-function resizeSpectrumCanvas() {
-  const canvas    = document.getElementById('spectrum-canvas');
-  const container = document.getElementById('spectrum-container');
-  if (canvas && container) {
-    canvas.width  = container.clientWidth || 440;
-    canvas.height = 80;
-  }
-}
-
-// ─────────────────────────────────────────────────────
-// 5. NAVIGATION
+// 4. NAVIGATION
 // ─────────────────────────────────────────────────────
 function showScreen(id) {
   document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
@@ -247,7 +96,7 @@ function goVote()    { showScreen('screen-vote'); }
 function goToLobby() { alert("Le mode multijoueur arrive bientôt ! 🚀"); }
 
 // ─────────────────────────────────────────────────────
-// 6. PROFIL
+// 5. PROFIL
 // ─────────────────────────────────────────────────────
 function buildAvatarGrid() {
   const grid = document.getElementById('avatar-grid');
@@ -292,7 +141,7 @@ function updateProfileStats() {
 function startSolo() { if (!state.pseudo) goProfile(); else goPrep(); }
 
 // ─────────────────────────────────────────────────────
-// 7. MODES & FILTRES
+// 6. MODES & FILTRES
 // ─────────────────────────────────────────────────────
 function setMode(mode) {
   document.getElementById('tab-choose').classList.toggle('active', mode === 'choose');
@@ -323,42 +172,53 @@ function setRandomDiff(diff, btn) {
 }
 
 // ─────────────────────────────────────────────────────
-// 8. MINIATURES
+// 7. MINIATURES
 // ─────────────────────────────────────────────────────
 function generateThumbnail(video) {
   return new Promise(resolve => {
     if (thumbCache[video.id]) { resolve(thumbCache[video.id]); return; }
     const vid = document.createElement('video');
     vid.crossOrigin = 'anonymous'; vid.muted = true; vid.preload = 'metadata'; vid.src = video.url;
-    vid.addEventListener('loadedmetadata', () => { durationCache[video.id] = vid.duration; vid.currentTime = Math.min(vid.duration * 0.1, 2); });
+    vid.addEventListener('loadedmetadata', () => {
+      durationCache[video.id] = vid.duration;
+      vid.currentTime = Math.min(vid.duration * 0.1, 2);
+    });
     vid.addEventListener('seeked', () => {
       try {
-        const c = document.createElement('canvas'); c.width=200; c.height=356;
+        const c = document.createElement('canvas'); c.width = 200; c.height = 356;
         const ctx = c.getContext('2d');
-        const vr=vid.videoWidth/vid.videoHeight, cr=c.width/c.height;
+        const vr = vid.videoWidth/vid.videoHeight, cr = c.width/c.height;
         let sx=0,sy=0,sw=vid.videoWidth,sh=vid.videoHeight;
-        if(vr>cr){sw=vid.videoHeight*cr;sx=(vid.videoWidth-sw)/2;}else{sh=vid.videoWidth/cr;sy=(vid.videoHeight-sh)/2;}
+        if (vr>cr){sw=vid.videoHeight*cr;sx=(vid.videoWidth-sw)/2;}
+        else{sh=vid.videoWidth/cr;sy=(vid.videoHeight-sh)/2;}
         ctx.drawImage(vid,sx,sy,sw,sh,0,0,c.width,c.height);
-        const url=c.toDataURL('image/jpeg',0.8); thumbCache[video.id]=url; resolve(url);
-      } catch(e){ resolve(null); }
+        const url = c.toDataURL('image/jpeg',0.8);
+        thumbCache[video.id] = url; resolve(url);
+      } catch(e) { resolve(null); }
     });
-    vid.addEventListener('error', ()=>resolve(null));
-    setTimeout(()=>resolve(null), 5000);
+    vid.addEventListener('error', () => resolve(null));
+    setTimeout(() => resolve(null), 5000);
   });
 }
 
 // ─────────────────────────────────────────────────────
-// 9. GRILLE VIDÉOS
+// 8. GRILLE VIDÉOS
 // ─────────────────────────────────────────────────────
 function buildVideoGrid() {
   const grid = document.getElementById('video-grid');
-  let pool = currentFilter==='tous' ? VIDEOS : VIDEOS.filter(v=>getDifficulty(durationCache[v.id])===currentFilter);
-  if (!pool.length) { grid.innerHTML='<p class="empty-lb" style="grid-column:1/-1;padding:20px">Aucune vidéo — les durées se chargent, réessaie dans quelques secondes.</p>'; return; }
+  let pool = currentFilter === 'tous'
+    ? VIDEOS
+    : VIDEOS.filter(v => getDifficulty(durationCache[v.id]) === currentFilter);
+
+  if (!pool.length) {
+    grid.innerHTML = '<p class="empty-lb" style="grid-column:1/-1;padding:20px">Aucune vidéo — les durées se chargent, réessaie dans quelques secondes.</p>';
+    return;
+  }
   grid.innerHTML = '';
   pool.forEach(video => {
-    const card = document.createElement('div'); card.className='video-card';
-    const dur=durationCache[video.id], diff=getDifficulty(dur), durTxt=dur?formatTime(dur):'…';
-    card.innerHTML=`
+    const card = document.createElement('div'); card.className = 'video-card';
+    const dur = durationCache[video.id], diff = getDifficulty(dur), durTxt = dur ? formatTime(dur) : '…';
+    card.innerHTML = `
       <div class="video-thumb-wrap">
         <div class="video-thumb-loading" id="tl-${video.id}"><div class="thumb-spinner"></div></div>
         <img id="ti-${video.id}" class="video-thumb-img" style="display:none" alt="${video.title}" />
@@ -370,38 +230,43 @@ function buildVideoGrid() {
         <div class="video-title">${video.title}</div>
         <div class="video-meta" id="tm-${video.id}">Durée : ${durTxt}</div>
       </div>`;
-    card.addEventListener('click', ()=>selectVideo(video, false));
+    card.addEventListener('click', () => selectVideo(video, false));
     grid.appendChild(card);
     generateThumbnail(video).then(dataURL => {
       document.getElementById(`tl-${video.id}`)?.remove();
-      const img=document.getElementById(`ti-${video.id}`), fb=document.getElementById(`tf-${video.id}`);
-      if(dataURL){img.src=dataURL;img.style.display='block';}else if(fb){fb.style.display='flex';}
-      const d=durationCache[video.id], d2=getDifficulty(d);
-      const el=document.getElementById(`td-${video.id}`);
-      if(el){el.textContent=getDiffLabel(d2);el.className=`video-diff-badge diff-${d2}`;}
-      const me=document.getElementById(`tm-${video.id}`);
-      if(me&&d) me.textContent=`Durée : ${formatTime(d)}`;
+      const img = document.getElementById(`ti-${video.id}`);
+      const fb  = document.getElementById(`tf-${video.id}`);
+      if (dataURL) { img.src = dataURL; img.style.display = 'block'; }
+      else if (fb) { fb.style.display = 'flex'; }
+      const d = durationCache[video.id], d2 = getDifficulty(d);
+      const el = document.getElementById(`td-${video.id}`);
+      if (el) { el.textContent = getDiffLabel(d2); el.className = `video-diff-badge diff-${d2}`; }
+      const me = document.getElementById(`tm-${video.id}`);
+      if (me && d) me.textContent = `Durée : ${formatTime(d)}`;
     });
   });
 }
 
 // ─────────────────────────────────────────────────────
-// 10. ALÉATOIRE
+// 9. ALÉATOIRE
 // ─────────────────────────────────────────────────────
 function launchRandom() {
-  let pool = randomDiff==='tous' ? VIDEOS : VIDEOS.filter(v=>getDifficulty(durationCache[v.id])===randomDiff);
+  let pool = randomDiff === 'tous' ? VIDEOS : VIDEOS.filter(v => getDifficulty(durationCache[v.id]) === randomDiff);
   if (!pool.length) pool = VIDEOS;
-  const icon=document.getElementById('random-icon');
-  const emojis=['🎲','🎭','😂','🔥','🎤','😜','🦁','⭐'];
-  let i=0; icon.classList.add('spinning');
-  const spin=setInterval(()=>{icon.textContent=emojis[i++%emojis.length];},100);
-  setTimeout(()=>{clearInterval(spin);icon.classList.remove('spinning');selectVideo(pool[Math.floor(Math.random()*pool.length)],true);},800);
+  const icon = document.getElementById('random-icon');
+  const emojis = ['🎲','🎭','😂','🔥','🎤','😜','🦁','⭐'];
+  let i = 0; icon.classList.add('spinning');
+  const spin = setInterval(() => { icon.textContent = emojis[i++ % emojis.length]; }, 100);
+  setTimeout(() => {
+    clearInterval(spin); icon.classList.remove('spinning');
+    selectVideo(pool[Math.floor(Math.random() * pool.length)], true);
+  }, 800);
 }
-function launchRandomFromResult(){goPrep();setTimeout(()=>{setMode('random');launchRandom();},150);}
-function selectVideo(video,isRandom){state.currentVideo=video;state.isRandom=isRandom;loadGameScreen();}
+function launchRandomFromResult() { goPrep(); setTimeout(() => { setMode('random'); launchRandom(); }, 150); }
+function selectVideo(video, isRandom) { state.currentVideo = video; state.isRandom = isRandom; loadGameScreen(); }
 
 // ─────────────────────────────────────────────────────
-// 11. ÉCRAN DE JEU
+// 10. ÉCRAN DE JEU
 // ─────────────────────────────────────────────────────
 function loadGameScreen() {
   const v = document.getElementById('main-video');
@@ -410,23 +275,23 @@ function loadGameScreen() {
   document.getElementById('game-score').textContent  = state.score;
   document.getElementById('random-badge').classList.toggle('hidden', !state.isRandom);
 
-  // Réinitialise spectre et audio
-  stopSpectrum(); recordedSpectrum = [];
-  if (sourceNode) { try { sourceNode.disconnect(); } catch(e){} sourceNode = null; }
+  v.src    = state.currentVideo.url;
+  v.muted  = false;
+  v.volume = 1.0;
+  v.load();
 
-  v.src = state.currentVideo.url; v.muted = false; v.volume = 1.0; v.load();
-  v.addEventListener('loadedmetadata', resizeSpectrumCanvas, {once:true});
-
-  updateProgressBar(); resetGamePhases(); showPhase('phase-preview');
+  updateProgressBar();
+  resetGamePhases();
+  showPhase('phase-preview');
   showScreen('screen-game');
   v.addEventListener('timeupdate', onTimeUpdate);
   v.addEventListener('ended', onVideoEnded);
 }
 
 // ─────────────────────────────────────────────────────
-// 12. PHASES
+// 11. PHASES
 // ─────────────────────────────────────────────────────
-function resetGamePhases() { document.querySelectorAll('.phase').forEach(p=>p.classList.remove('active')); }
+function resetGamePhases() { document.querySelectorAll('.phase').forEach(p => p.classList.remove('active')); }
 
 function showPhase(id) {
   resetGamePhases();
@@ -438,248 +303,349 @@ function showPhase(id) {
 }
 
 // ─────────────────────────────────────────────────────
-// 13. CONTRÔLES VIDÉO
+// 12. CONTRÔLES VIDÉO
 // ─────────────────────────────────────────────────────
 function togglePlayPause() {
   const v = document.getElementById('main-video');
   const btn = document.getElementById('btn-playpause');
-  if (v.paused) {
-    // Init analyser au premier clic (obligation navigateur)
-    if (!sourceNode) initAudioAnalyser();
-    v.play(); btn.textContent = '⏸';
-    const inPreview = document.getElementById('phase-preview').classList.contains('active');
-    if (inPreview && analyser) startLiveSpectrum();
-  } else {
-    v.pause(); btn.textContent = '▶';
-    if (spectrumAnimId) { cancelAnimationFrame(spectrumAnimId); spectrumAnimId = null; }
-    if (spectrumRecordIv) { clearInterval(spectrumRecordIv); spectrumRecordIv = null; }
-  }
+  if (v.paused) { v.play(); btn.textContent = '⏸'; }
+  else          { v.pause(); btn.textContent = '▶'; }
 }
 
 function restartVideo() {
   const v = document.getElementById('main-video');
-  if (!sourceNode) initAudioAnalyser();
   v.currentTime = 0; v.play();
   document.getElementById('btn-playpause').textContent = '⏸';
-  const inPreview = document.getElementById('phase-preview').classList.contains('active');
-  if (inPreview && analyser) startLiveSpectrum();
 }
 
 function seekVideo(e) {
-  const v = document.getElementById('main-video');
+  const v   = document.getElementById('main-video');
   const bar = document.getElementById('progress-bar-bg');
   const ratio = Math.max(0, Math.min(1, (e.clientX - bar.getBoundingClientRect().left) / bar.offsetWidth));
   if (v.duration) v.currentTime = ratio * v.duration;
 }
 
 function onTimeUpdate() { updateProgressBar(); updateTimeDisplay(); }
-function onVideoEnded() {
-  const b = document.getElementById('btn-playpause'); if(b) b.textContent='▶';
-  if(spectrumAnimId){cancelAnimationFrame(spectrumAnimId);spectrumAnimId=null;}
-  if(spectrumRecordIv){clearInterval(spectrumRecordIv);spectrumRecordIv=null;}
-}
+function onVideoEnded() { const b = document.getElementById('btn-playpause'); if (b) b.textContent = '▶'; }
 
 function updateProgressBar() {
-  const v=document.getElementById('main-video'), f=document.getElementById('progress-bar-fill');
-  if(!f||!v.duration) return; f.style.width=(v.currentTime/v.duration*100)+'%';
+  const v = document.getElementById('main-video');
+  const f = document.getElementById('progress-bar-fill');
+  if (!f || !v.duration) return;
+  f.style.width = (v.currentTime / v.duration * 100) + '%';
 }
+
 function updateTimeDisplay() {
-  const v=document.getElementById('main-video'), el=document.getElementById('time-display');
-  if(!el) return; el.textContent=`${formatTime(v.currentTime)} / ${formatTime(v.duration||0)}`;
+  const v  = document.getElementById('main-video');
+  const el = document.getElementById('time-display');
+  if (!el) return;
+  el.textContent = `${formatTime(v.currentTime)} / ${formatTime(v.duration || 0)}`;
 }
-function formatTime(s){if(!s||isNaN(s))return'0:00';return`${Math.floor(s/60)}:${Math.floor(s%60).toString().padStart(2,'0')}`;}
+
+function formatTime(s) {
+  if (!s || isNaN(s)) return '0:00';
+  return `${Math.floor(s/60)}:${Math.floor(s%60).toString().padStart(2,'0')}`;
+}
 
 // ─────────────────────────────────────────────────────
-// 14. IMITATION
+// 13. IMITATION
 // ─────────────────────────────────────────────────────
 function readyToImitate() {
   const v = document.getElementById('main-video');
   v.pause(); v.currentTime = 0; v.muted = true;
   document.getElementById('btn-playpause').textContent = '▶';
-  stopSpectrum();
   showPhase('phase-ready');
 }
 
 // ─────────────────────────────────────────────────────
-// 15. ENREGISTREMENT
+// 14. ENREGISTREMENT — avec fix mobile (iOS/Android)
 // ─────────────────────────────────────────────────────
 async function startRecording() {
   let stream;
-  try { stream = await navigator.mediaDevices.getUserMedia({audio:true,video:false}); }
-  catch(e) { document.getElementById('modal-micro').classList.remove('hidden'); return; }
+  try {
+    // ✅ Contraintes audio optimisées pour mobile
+    const constraints = {
+      audio: {
+        echoCancellation: true,
+        noiseSuppression: true,
+        sampleRate: 44100,
+      },
+      video: false
+    };
+    stream = await navigator.mediaDevices.getUserMedia(constraints);
+  } catch(e) {
+    // Fallback : contraintes simples si le mobile refuse les avancées
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+    } catch(e2) {
+      document.getElementById('modal-micro').classList.remove('hidden');
+      return;
+    }
+  }
 
-  state.audioChunks=[]; state.isRecording=true; state.isPaused=false;
-  state.mediaRecorder = new MediaRecorder(stream);
-  state.mediaRecorder.addEventListener('dataavailable', e=>{if(e.data.size>0)state.audioChunks.push(e.data);});
-  state.mediaRecorder.addEventListener('stop', ()=>{
-    stream.getTracks().forEach(t=>t.stop());
-    state.isRecording=false; stopSpectrum();
-    if(!state.audioChunks.length) return;
-    state.audioBlob=new Blob(state.audioChunks,{type:'audio/webm'});
-    state.audioURL=URL.createObjectURL(state.audioBlob);
+  state.audioChunks = []; state.isRecording = true; state.isPaused = false;
+
+  // ✅ Fix mobile : choisit le meilleur format supporté
+  const mimeType = getSupportedMimeType();
+  const options  = mimeType ? { mimeType } : {};
+  state.mediaRecorder = new MediaRecorder(stream, options);
+
+  state.mediaRecorder.addEventListener('dataavailable', e => {
+    if (e.data && e.data.size > 0) state.audioChunks.push(e.data);
+  });
+
+  state.mediaRecorder.addEventListener('stop', () => {
+    stream.getTracks().forEach(t => t.stop());
+    state.isRecording = false;
+    if (!state.audioChunks.length) return;
+    const mime = mimeType || 'audio/webm';
+    state.audioBlob = new Blob(state.audioChunks, { type: mime });
+    state.audioURL  = URL.createObjectURL(state.audioBlob);
     showPhase('phase-playback');
   });
 
   await countdown(3);
 
   const v = document.getElementById('main-video');
-  v.currentTime=0; v.muted=true;
-  showPhase('phase-recording'); resetPauseBtn();
-  v.play(); state.mediaRecorder.start();
+  v.currentTime = 0; v.muted = true;
+  showPhase('phase-recording');
+  resetPauseBtn();
 
-  // Lance le replay du spectre enregistré
-  if (recordedSpectrum.length > 0) startReplaySpectrum();
-
-  v.onended = ()=>finishRecording();
+  // ✅ Fix mobile : timeslice de 100ms pour collecter les données régulièrement
+  v.play();
+  state.mediaRecorder.start(100);
+  v.onended = () => finishRecording();
 }
 
-function stopRecordingEarly(){document.getElementById('main-video').pause();finishRecording();}
-function finishRecording(){stopSpectrum();if(state.mediaRecorder&&state.mediaRecorder.state!=='inactive')state.mediaRecorder.stop();}
+// Détecte le format audio supporté par le navigateur (important sur iOS)
+function getSupportedMimeType() {
+  const types = [
+    'audio/webm;codecs=opus',
+    'audio/webm',
+    'audio/ogg;codecs=opus',
+    'audio/ogg',
+    'audio/mp4',
+  ];
+  for (const type of types) {
+    if (MediaRecorder.isTypeSupported(type)) return type;
+  }
+  return null;
+}
 
-function pauseResumeRecording(){
-  const v=document.getElementById('main-video'), btn=document.getElementById('btn-pause-rec');
-  if(!state.isPaused){
+function stopRecordingEarly() { document.getElementById('main-video').pause(); finishRecording(); }
+function finishRecording() {
+  if (state.mediaRecorder && state.mediaRecorder.state !== 'inactive') state.mediaRecorder.stop();
+}
+
+function pauseResumeRecording() {
+  const v   = document.getElementById('main-video');
+  const btn = document.getElementById('btn-pause-rec');
+  if (!state.isPaused) {
     v.pause();
-    if(state.mediaRecorder?.state==='recording') state.mediaRecorder.pause();
-    if(spectrumPlaybackIv){clearInterval(spectrumPlaybackIv);spectrumPlaybackIv=null;}
-    state.isPaused=true; btn.textContent='▶ Reprendre'; btn.style.background='var(--green)'; btn.style.color='#fff';
+    if (state.mediaRecorder?.state === 'recording') state.mediaRecorder.pause();
+    state.isPaused = true;
+    btn.textContent = '▶ Reprendre'; btn.style.background = 'var(--green)'; btn.style.color = '#fff';
   } else {
     v.play();
-    if(state.mediaRecorder?.state==='paused') state.mediaRecorder.resume();
-    if(recordedSpectrum.length>0) startReplaySpectrum();
-    state.isPaused=false; resetPauseBtn();
+    if (state.mediaRecorder?.state === 'paused') state.mediaRecorder.resume();
+    state.isPaused = false;
+    resetPauseBtn();
   }
 }
 
-function resetPauseBtn(){const b=document.getElementById('btn-pause-rec');if(!b)return;b.textContent='⏸ Pause';b.style.background='';b.style.color='';}
-
-function stopAndRetryRecording(){
-  const v=document.getElementById('main-video'); v.pause(); v.currentTime=0;
-  if(state.mediaRecorder&&state.mediaRecorder.state!=='inactive'){state.mediaRecorder.onstop=null;state.audioChunks=[];state.mediaRecorder.stop();}
-  state.audioChunks=[];state.audioBlob=null;state.audioURL=null;state.isRecording=false;state.isPaused=false;
-  v.muted=true; resetPauseBtn(); stopSpectrum(); showPhase('phase-ready');
+function resetPauseBtn() {
+  const btn = document.getElementById('btn-pause-rec');
+  if (!btn) return;
+  btn.textContent = '⏸ Pause'; btn.style.background = ''; btn.style.color = '';
 }
 
-function retryFromPlayback(){
-  state.audioChunks=[];state.audioBlob=null;state.audioURL=null;
-  const v=document.getElementById('main-video'); v.pause(); v.currentTime=0; v.muted=true;
-  stopSpectrum(); showPhase('phase-ready');
+function stopAndRetryRecording() {
+  const v = document.getElementById('main-video');
+  v.pause(); v.currentTime = 0;
+  if (state.mediaRecorder && state.mediaRecorder.state !== 'inactive') {
+    state.mediaRecorder.onstop = null; state.audioChunks = []; state.mediaRecorder.stop();
+  }
+  state.audioChunks = []; state.audioBlob = null; state.audioURL = null;
+  state.isRecording = false; state.isPaused = false;
+  v.muted = true; resetPauseBtn();
+  showPhase('phase-ready');
+}
+
+function retryFromPlayback() {
+  state.audioChunks = []; state.audioBlob = null; state.audioURL = null;
+  const v = document.getElementById('main-video');
+  v.pause(); v.currentTime = 0; v.muted = true;
+  showPhase('phase-ready');
 }
 
 // ─────────────────────────────────────────────────────
-// 16. COMPTE À REBOURS
+// 15. COMPTE À REBOURS
 // ─────────────────────────────────────────────────────
-function countdown(seconds){
-  return new Promise(resolve=>{
-    let n=seconds;
-    let o=document.getElementById('countdown-overlay');
-    if(!o){
-      o=document.createElement('div');o.id='countdown-overlay';
-      Object.assign(o.style,{position:'absolute',top:'0',left:'0',width:'100%',height:'100%',zIndex:'50',
+function countdown(seconds) {
+  return new Promise(resolve => {
+    let n = seconds;
+    let o = document.getElementById('countdown-overlay');
+    if (!o) {
+      o = document.createElement('div'); o.id = 'countdown-overlay';
+      Object.assign(o.style, {
+        position:'absolute',top:'0',left:'0',width:'100%',height:'100%',zIndex:'50',
         background:'rgba(0,0,0,0.78)',display:'flex',alignItems:'center',justifyContent:'center',
         fontFamily:"'Bangers',cursive",fontSize:'clamp(100px,25vw,180px)',
-        color:'#FFE135',textShadow:'6px 6px 0 #FF6B35,0 0 50px rgba(255,225,53,0.7)',lineHeight:'1',textAlign:'center'});
+        color:'#FFE135',textShadow:'6px 6px 0 #FF6B35,0 0 50px rgba(255,225,53,0.7)',
+        lineHeight:'1',textAlign:'center',
+      });
       document.querySelector('.video-wrapper').appendChild(o);
     }
-    o.textContent=n; o.style.display='flex'; triggerPop(o);
-    const iv=setInterval(()=>{n--;if(n<=0){clearInterval(iv);o.style.display='none';resolve();}else{o.textContent=n;triggerPop(o);}},1000);
+    o.textContent = n; o.style.display = 'flex'; triggerPop(o);
+    const iv = setInterval(() => {
+      n--;
+      if (n <= 0) { clearInterval(iv); o.style.display = 'none'; resolve(); }
+      else        { o.textContent = n; triggerPop(o); }
+    }, 1000);
   });
 }
-function triggerPop(el){el.style.animation='none';void el.offsetWidth;el.style.animation='countpop 0.45s cubic-bezier(0.175,0.885,0.32,1.275) both';}
 
-// ─────────────────────────────────────────────────────
-// 17. LECTURE RÉSULTAT
-// ─────────────────────────────────────────────────────
-function playResult(){
-  if(!state.audioURL) return;
-  const v=document.getElementById('main-video'), a=new Audio(state.audioURL);
-  v.muted=true; v.currentTime=0; v.play(); a.play(); v.onended=()=>a.pause();
+function triggerPop(el) {
+  el.style.animation = 'none'; void el.offsetWidth;
+  el.style.animation = 'countpop 0.45s cubic-bezier(0.175,0.885,0.32,1.275) both';
 }
-function playResultAgain(){showScreen('screen-game');setTimeout(()=>playResult(),200);}
 
 // ─────────────────────────────────────────────────────
-// 18. TÉLÉCHARGEMENT
+// 16. LECTURE RÉSULTAT
 // ─────────────────────────────────────────────────────
-function downloadAudio(){
-  if(!state.audioBlob) return;
-  const a=document.createElement('a');
-  a.href=state.audioURL; a.download=`ImitGame_${state.currentVideo?.id||'video'}_${state.pseudo||'joueur'}.webm`;
+function playResult() {
+  if (!state.audioURL) return;
+  const v = document.getElementById('main-video');
+  const a = new Audio(state.audioURL);
+  v.muted = true; v.currentTime = 0; v.play(); a.play();
+  v.onended = () => a.pause();
+}
+function playResultAgain() { showScreen('screen-game'); setTimeout(() => playResult(), 200); }
+
+// ─────────────────────────────────────────────────────
+// 17. TÉLÉCHARGEMENT
+// ─────────────────────────────────────────────────────
+function downloadAudio() {
+  if (!state.audioBlob) return;
+  const ext = state.audioBlob.type.includes('mp4') ? 'mp4'
+            : state.audioBlob.type.includes('ogg')  ? 'ogg' : 'webm';
+  const a = document.createElement('a');
+  a.href     = state.audioURL;
+  a.download = `ImitGame_${state.currentVideo?.id || 'video'}_${state.pseudo || 'joueur'}.${ext}`;
   document.body.appendChild(a); a.click(); document.body.removeChild(a);
 }
 
 // ─────────────────────────────────────────────────────
-// 19. VOTE
+// 18. VOTE
 // ─────────────────────────────────────────────────────
-const VOTE_POINTS={3:30,1:10,0:0};
-const VOTE_MESSAGES={3:{emoji:"🏆",title:"EXCELLENT !",pts:"+30 points !"},1:{emoji:"😄",title:"Pas mal !",pts:"+10 points !"},0:{emoji:"😅",title:"On fait mieux...",pts:"+0 points !"}};
-function castVote(level){
-  state.score+=VOTE_POINTS[level];savePerformance();saveToStorage();
-  const msg=VOTE_MESSAGES[level];
-  document.getElementById('result-emoji').textContent=msg.emoji;
-  document.getElementById('result-title').textContent=msg.title;
-  document.getElementById('result-pts').textContent=msg.pts;
-  document.getElementById('result-total-score').textContent=state.score;
+const VOTE_POINTS   = {3:30,1:10,0:0};
+const VOTE_MESSAGES = {
+  3:{emoji:"🏆",title:"EXCELLENT !",     pts:"+30 points !"},
+  1:{emoji:"😄",title:"Pas mal !",        pts:"+10 points !"},
+  0:{emoji:"😅",title:"On fait mieux...", pts:"+0 points !"},
+};
+
+function castVote(level) {
+  state.score += VOTE_POINTS[level]; savePerformance(); saveToStorage();
+  const msg = VOTE_MESSAGES[level];
+  document.getElementById('result-emoji').textContent       = msg.emoji;
+  document.getElementById('result-title').textContent       = msg.title;
+  document.getElementById('result-pts').textContent         = msg.pts;
+  document.getElementById('result-total-score').textContent = state.score;
   showScreen('screen-result');
 }
 
 // ─────────────────────────────────────────────────────
-// 20. CLASSEMENT
+// 19. CLASSEMENT
 // ─────────────────────────────────────────────────────
-function refreshLeaderboard(){
-  const lb=JSON.parse(localStorage.getItem('imitgame_lb')||'[]');
-  const list=document.getElementById('leaderboard-list');
-  const medals=['🥇','🥈','🥉'];
-  list.innerHTML=lb.length===0?'<p class="empty-lb">Sois le premier à jouer !</p>'
-    :lb.map((row,i)=>`<div class="lb-row"><span class="lb-rank">${medals[i]||(i+1)}</span><span class="lb-avatar">${row.avatar||'🎭'}</span><span class="lb-name">${escapeHtml(row.name)}</span><span class="lb-pts">${row.score} pts</span></div>`).join('');
+function refreshLeaderboard() {
+  const lb   = JSON.parse(localStorage.getItem('imitgame_lb') || '[]');
+  const list = document.getElementById('leaderboard-list');
+  const medals = ['🥇','🥈','🥉'];
+  list.innerHTML = lb.length === 0
+    ? '<p class="empty-lb">Sois le premier à jouer !</p>'
+    : lb.map((row,i) => `
+        <div class="lb-row">
+          <span class="lb-rank">${medals[i] || (i+1)}</span>
+          <span class="lb-avatar">${row.avatar || '🎭'}</span>
+          <span class="lb-name">${escapeHtml(row.name)}</span>
+          <span class="lb-pts">${row.score} pts</span>
+        </div>`).join('');
 }
-function confirmResetLeaderboard(){document.getElementById('modal-reset').classList.remove('hidden');}
-function resetLeaderboard(){localStorage.removeItem('imitgame_lb');state.score=0;saveToStorage();closeModal('modal-reset');refreshLeaderboard();updateHomeProfile();}
 
-// ─────────────────────────────────────────────────────
-// 21. STOCKAGE
-// ─────────────────────────────────────────────────────
-function saveToStorage(){localStorage.setItem('imitgame_pseudo',state.pseudo);localStorage.setItem('imitgame_avatar',state.avatar);localStorage.setItem('imitgame_score',state.score);}
-function loadFromStorage(){state.pseudo=localStorage.getItem('imitgame_pseudo')||'';state.avatar=localStorage.getItem('imitgame_avatar')||'🎭';state.score=parseInt(localStorage.getItem('imitgame_score')||'0');}
-function savePerformance(){
-  let lb=JSON.parse(localStorage.getItem('imitgame_lb')||'[]');
-  const idx=lb.findIndex(r=>r.name===state.pseudo);
-  const entry={name:state.pseudo,avatar:state.avatar,score:state.score};
-  if(idx>=0)lb[idx]=entry;else lb.push(entry);
-  lb.sort((a,b)=>b.score-a.score);
-  localStorage.setItem('imitgame_lb',JSON.stringify(lb.slice(0,10)));
+function confirmResetLeaderboard() { document.getElementById('modal-reset').classList.remove('hidden'); }
+function resetLeaderboard() {
+  localStorage.removeItem('imitgame_lb'); state.score = 0; saveToStorage();
+  closeModal('modal-reset'); refreshLeaderboard(); updateHomeProfile();
 }
 
 // ─────────────────────────────────────────────────────
-// 22. UTILITAIRES
+// 20. STOCKAGE
 // ─────────────────────────────────────────────────────
-function stopEverything(){
-  stopSpectrum();
-  const v=document.getElementById('main-video');
-  if(v){v.pause();v.currentTime=0;v.onended=null;v.removeEventListener('timeupdate',onTimeUpdate);v.removeEventListener('ended',onVideoEnded);}
-  if(state.mediaRecorder&&state.mediaRecorder.state!=='inactive'){state.mediaRecorder.onstop=null;state.mediaRecorder.stop();}
-  state.isRecording=false;state.isPaused=false;
-  if(sourceNode){try{sourceNode.disconnect();}catch(e){}sourceNode=null;}
+function saveToStorage() {
+  localStorage.setItem('imitgame_pseudo', state.pseudo);
+  localStorage.setItem('imitgame_avatar', state.avatar);
+  localStorage.setItem('imitgame_score',  state.score);
 }
-function closeModal(id){document.getElementById(id).classList.add('hidden');}
-function escapeHtml(str){return str.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+function loadFromStorage() {
+  state.pseudo = localStorage.getItem('imitgame_pseudo') || '';
+  state.avatar = localStorage.getItem('imitgame_avatar') || '🎭';
+  state.score  = parseInt(localStorage.getItem('imitgame_score') || '0');
+}
+function savePerformance() {
+  let lb = JSON.parse(localStorage.getItem('imitgame_lb') || '[]');
+  const idx = lb.findIndex(r => r.name === state.pseudo);
+  const entry = { name: state.pseudo, avatar: state.avatar, score: state.score };
+  if (idx >= 0) lb[idx] = entry; else lb.push(entry);
+  lb.sort((a,b) => b.score - a.score);
+  localStorage.setItem('imitgame_lb', JSON.stringify(lb.slice(0,10)));
+}
 
 // ─────────────────────────────────────────────────────
-// 23. INIT
+// 21. UTILITAIRES
 // ─────────────────────────────────────────────────────
-document.addEventListener('DOMContentLoaded',()=>{
-  loadFromStorage(); updateHomeProfile(); refreshLeaderboard();
-  const style=document.createElement('style');
-  style.textContent=`@keyframes countpop{from{transform:scale(0.4);opacity:0}to{transform:scale(1);opacity:1}}`;
+function stopEverything() {
+  const v = document.getElementById('main-video');
+  if (v) {
+    v.pause(); v.currentTime = 0; v.onended = null;
+    v.removeEventListener('timeupdate', onTimeUpdate);
+    v.removeEventListener('ended', onVideoEnded);
+  }
+  if (state.mediaRecorder && state.mediaRecorder.state !== 'inactive') {
+    state.mediaRecorder.onstop = null; state.mediaRecorder.stop();
+  }
+  state.isRecording = false; state.isPaused = false;
+}
+
+function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
+function escapeHtml(str) {
+  return str.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+// ─────────────────────────────────────────────────────
+// 22. INIT
+// ─────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+  loadFromStorage();
+  updateHomeProfile();
+  refreshLeaderboard();
+
+  const style = document.createElement('style');
+  style.textContent = `@keyframes countpop{from{transform:scale(0.4);opacity:0}to{transform:scale(1);opacity:1}}`;
   document.head.appendChild(style);
-  const pi=document.getElementById('pseudo-input');
-  pi.addEventListener('keydown',e=>{if(e.key==='Enter')saveProfile();});
-  pi.addEventListener('input',()=>{pi.style.borderColor='';});
-  VIDEOS.forEach(video=>{
-    if(!durationCache[video.id]){
-      const v=document.createElement('video');v.preload='metadata';v.muted=true;v.src=video.url;
-      v.addEventListener('loadedmetadata',()=>{durationCache[video.id]=v.duration;});
+
+  const pi = document.getElementById('pseudo-input');
+  pi.addEventListener('keydown', e => { if (e.key === 'Enter') saveProfile(); });
+  pi.addEventListener('input',   () => { pi.style.borderColor = ''; });
+
+  // Pré-charge les durées en arrière-plan
+  VIDEOS.forEach(video => {
+    if (!durationCache[video.id]) {
+      const v = document.createElement('video');
+      v.preload = 'metadata'; v.muted = true; v.src = video.url;
+      v.addEventListener('loadedmetadata', () => { durationCache[video.id] = v.duration; });
     }
   });
-  window.addEventListener('resize',resizeSpectrumCanvas);
+
   showScreen('screen-home');
 });
