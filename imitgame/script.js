@@ -484,7 +484,40 @@ function showJoinSalon(){
 function showCreateSalon(){
   document.getElementById('create-form').classList.remove('hidden');
   document.getElementById('join-form').classList.add('hidden');
-  buildVideoGridInto('lobby-video-grid', lobbyFilter);
+  setLobbyMode('choose');
+}
+
+function setLobbyMode(mode) {
+  document.getElementById('lobby-tab-choose').classList.toggle('active', mode === 'choose');
+  document.getElementById('lobby-tab-random').classList.toggle('active', mode === 'random');
+  document.getElementById('lobby-mode-choose').classList.toggle('hidden', mode !== 'choose');
+  document.getElementById('lobby-mode-random').classList.toggle('hidden', mode !== 'random');
+  if (mode === 'choose') buildVideoGridInto('lobby-video-grid', lobbyFilter);
+}
+
+let lobbyRandomDiff = 'tous';
+function setLobbyRandomDiff(diff, btn) {
+  lobbyRandomDiff = diff;
+  document.querySelectorAll('#lobby-mode-random .filter-btn').forEach(b => b.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+}
+
+async function createSalonRandom() {
+  // Animation roulette
+  const icon = document.getElementById('lobby-random-icon');
+  const emojis = ['🎲','🎭','😂','🔥','🎤','😜','🦁','⭐'];
+  let i = 0; icon.classList.add('spinning');
+  const spin = setInterval(() => { icon.textContent = emojis[i++ % emojis.length]; }, 100);
+
+  let pool = lobbyRandomDiff === 'tous' ? VIDEOS : VIDEOS.filter(v => getDifficulty(durationCache[v.id]) === lobbyRandomDiff);
+  if (!pool.length) pool = VIDEOS;
+  const picked = pool[Math.floor(Math.random() * pool.length)];
+
+  setTimeout(async () => {
+    clearInterval(spin); icon.classList.remove('spinning');
+    icon.textContent = '🎬';
+    await selectLobbyVideo(picked);
+  }, 800);
 }
 
 function filterLobbyVideos(diff, btn){
@@ -635,13 +668,33 @@ function subscribeToSalon(){
   state.realtimeChannel = db
     .channel(`salon-${state.salonId}`)
     .on('postgres_changes',{event:'INSERT',schema:'public',table:'players',filter:`salon_id=eq.${state.salonId}`},
-      ()=>{ refreshPlayersList(); })
+      () => { refreshPlayersList(); })
     .on('postgres_changes',{event:'DELETE',schema:'public',table:'players',filter:`salon_id=eq.${state.salonId}`},
-      ()=>{ refreshPlayersList(); })
+      () => { refreshPlayersList(); })
     .on('postgres_changes',{event:'UPDATE',schema:'public',table:'salons',filter:`id=eq.${state.salonId}`},
-      (payload)=>{ handleSalonUpdate(payload.new); })
+      (payload) => { handleSalonUpdate(payload.new); })
     .on('postgres_changes',{event:'UPDATE',schema:'public',table:'players',filter:`salon_id=eq.${state.salonId}`},
-      ()=>{ handlePlayersUpdate(); })
+      async (payload) => {
+        // Recharge tous les joueurs à chaque update
+        const { data: players } = await db.from('players').select('*').eq('salon_id', state.salonId).order('created_at');
+        if (players) {
+          state.players = players;
+          // Met à jour l'index du tour courant
+          const nextPlayer = players.find(p => !p.has_played);
+          const nextIndex  = nextPlayer ? players.indexOf(nextPlayer) : players.length;
+
+          if (nextIndex !== state.currentTurnIndex && document.getElementById('screen-spectator').classList.contains('active')) {
+            state.currentTurnIndex = nextIndex;
+            startNextTurn();
+          }
+
+          // Vérifie si tout le monde a joué
+          const allPlayed = players.every(p => p.has_played);
+          if (allPlayed && state.isHost) {
+            await db.from('salons').update({ status: 'voting' }).eq('id', state.salonId);
+          }
+        }
+      })
     .subscribe();
 }
 

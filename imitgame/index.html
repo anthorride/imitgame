@@ -164,14 +164,43 @@
 
         <!-- Créer : choisir une vidéo -->
         <div id="create-form" class="hidden">
-          <h3 style="margin-bottom:12px">Choisis la vidéo pour ton salon</h3>
-          <div class="filter-row">
-            <button class="filter-btn active" onclick="filterLobbyVideos('tous',this)">Tous</button>
-            <button class="filter-btn" onclick="filterLobbyVideos('facile',this)">⭐ Facile</button>
-            <button class="filter-btn" onclick="filterLobbyVideos('moyen',this)">⭐⭐ Moyen</button>
-            <button class="filter-btn" onclick="filterLobbyVideos('hard',this)">⭐⭐⭐ Hard</button>
+          <h3 style="margin-bottom:16px">Choisis la vidéo pour ton salon</h3>
+
+          <!-- Tabs choix / aléatoire -->
+          <div class="mode-tabs" style="margin-bottom:16px">
+            <button class="mode-tab active" id="lobby-tab-choose" onclick="setLobbyMode('choose')">🎬 Choisir</button>
+            <button class="mode-tab" id="lobby-tab-random" onclick="setLobbyMode('random')">🎲 Aléatoire</button>
           </div>
-          <div class="video-grid" id="lobby-video-grid"></div>
+
+          <!-- Mode choix -->
+          <div id="lobby-mode-choose">
+            <div class="filter-row">
+              <button class="filter-btn active" onclick="filterLobbyVideos('tous',this)">Tous</button>
+              <button class="filter-btn" onclick="filterLobbyVideos('facile',this)">⭐ Facile</button>
+              <button class="filter-btn" onclick="filterLobbyVideos('moyen',this)">⭐⭐ Moyen</button>
+              <button class="filter-btn" onclick="filterLobbyVideos('hard',this)">⭐⭐⭐ Hard</button>
+            </div>
+            <div class="video-grid" id="lobby-video-grid"></div>
+          </div>
+
+          <!-- Mode aléatoire -->
+          <div id="lobby-mode-random" class="hidden">
+            <div class="random-box">
+              <div class="random-icon" id="lobby-random-icon">🎲</div>
+              <h3>Vidéo surprise !</h3>
+              <p>Une vidéo au hasard — tes adversaires ne savent pas ce qui les attend !</p>
+              <div class="random-filters">
+                <p class="filter-label">Difficulté :</p>
+                <div class="filter-row">
+                  <button class="filter-btn active" onclick="setLobbyRandomDiff('tous',this)">Tous</button>
+                  <button class="filter-btn" onclick="setLobbyRandomDiff('facile',this)">⭐ Facile</button>
+                  <button class="filter-btn" onclick="setLobbyRandomDiff('moyen',this)">⭐⭐ Moyen</button>
+                  <button class="filter-btn" onclick="setLobbyRandomDiff('hard',this)">⭐⭐⭐ Hard</button>
+                </div>
+              </div>
+              <button class="btn btn-random" onclick="createSalonRandom()">🎲 Créer avec vidéo surprise !</button>
+            </div>
+          </div>
         </div>
       </div>
     </div>
