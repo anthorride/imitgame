@@ -7,6 +7,8 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Bangers&family=Nunito:wght@400;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css" />
+  <!-- Supabase SDK -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body>
 
@@ -22,7 +24,7 @@
         <p class="logo-sub">Le jeu d'imitation vidéo !</p>
       </div>
 
-      <div class="home-profile" id="home-profile" onclick="goProfile()">
+      <div class="home-profile" onclick="goProfile()">
         <span class="home-avatar" id="home-avatar">🎭</span>
         <div class="home-profile-info">
           <span class="home-profile-name" id="home-profile-name">Choisir un profil</span>
@@ -41,7 +43,6 @@
           <div class="card-icon">👥</div>
           <div class="card-label">Multijoueur</div>
           <div class="card-desc">Crée ou rejoins un salon</div>
-          <div class="card-badge">Bientôt</div>
         </div>
       </div>
 
@@ -77,7 +78,7 @@
   </div>
 
   <!-- ═══════════════════════════════════════════
-       ÉCRAN 3 : CHOIX DE VIDÉO
+       ÉCRAN 3 : CHOIX DE VIDÉO (solo)
   ═══════════════════════════════════════════ -->
   <div id="screen-prep" class="screen">
     <div class="prep-header">
@@ -124,11 +125,108 @@
   </div>
 
   <!-- ═══════════════════════════════════════════
-       ÉCRAN 4 : JEU
+       ÉCRAN 4 : LOBBY MULTIJOUEUR
+  ═══════════════════════════════════════════ -->
+  <div id="screen-lobby" class="screen">
+    <div class="prep-header">
+      <button class="btn-back" onclick="leaveLobby()">← Quitter</button>
+      <div class="player-info">
+        <span class="player-avatar" id="lobby-avatar">🎭</span>
+        <span class="player-name" id="lobby-pseudo">Joueur</span>
+      </div>
+    </div>
+    <div class="lobby-content">
+      <div id="lobby-join-create">
+        <h2 class="lobby-title">Mode Multijoueur 👥</h2>
+        <div class="lobby-cards">
+          <div class="lobby-card" onclick="showCreateSalon()">
+            <div class="lobby-card-icon">➕</div>
+            <div class="lobby-card-label">Créer un salon</div>
+            <div class="lobby-card-desc">Tu choisis la vidéo et tu invites tes amis</div>
+          </div>
+          <div class="lobby-card" onclick="showJoinSalon()">
+            <div class="lobby-card-icon">🔑</div>
+            <div class="lobby-card-label">Rejoindre</div>
+            <div class="lobby-card-desc">Entre le code du salon de ton ami</div>
+          </div>
+        </div>
+
+        <!-- Rejoindre avec un code -->
+        <div id="join-form" class="hidden">
+          <div class="join-box">
+            <h3>Entre le code du salon</h3>
+            <input id="join-code-input" type="text" placeholder="Ex: AB12CD" maxlength="6"
+              style="text-transform:uppercase;letter-spacing:4px;text-align:center;font-size:24px;font-weight:800" />
+            <button class="btn btn-primary" onclick="joinSalon()">Rejoindre 🚀</button>
+            <p class="join-error hidden" id="join-error">Salon introuvable ou déjà commencé.</p>
+          </div>
+        </div>
+
+        <!-- Créer : choisir une vidéo -->
+        <div id="create-form" class="hidden">
+          <h3 style="margin-bottom:12px">Choisis la vidéo pour ton salon</h3>
+          <div class="filter-row">
+            <button class="filter-btn active" onclick="filterLobbyVideos('tous',this)">Tous</button>
+            <button class="filter-btn" onclick="filterLobbyVideos('facile',this)">⭐ Facile</button>
+            <button class="filter-btn" onclick="filterLobbyVideos('moyen',this)">⭐⭐ Moyen</button>
+            <button class="filter-btn" onclick="filterLobbyVideos('hard',this)">⭐⭐⭐ Hard</button>
+          </div>
+          <div class="video-grid" id="lobby-video-grid"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════
+       ÉCRAN 5 : SALLE D'ATTENTE
+  ═══════════════════════════════════════════ -->
+  <div id="screen-waiting" class="screen">
+    <div class="prep-header">
+      <button class="btn-back" onclick="leaveSalon()">← Quitter</button>
+      <div class="player-info">
+        <span class="player-avatar" id="waiting-avatar">🎭</span>
+        <span class="player-name" id="waiting-pseudo">Joueur</span>
+      </div>
+    </div>
+    <div class="waiting-content">
+      <div class="salon-code-box">
+        <p class="salon-code-label">Code du salon</p>
+        <div class="salon-code" id="salon-code-display">------</div>
+        <button class="btn-copy-code" onclick="copyCode()">📋 Copier le code</button>
+      </div>
+
+      <div class="waiting-video-preview">
+        <p class="waiting-label">Vidéo choisie</p>
+        <div class="waiting-video-card" id="waiting-video-card">
+          <div class="waiting-video-emoji" id="waiting-video-emoji">🎬</div>
+          <div class="waiting-video-title" id="waiting-video-title">Chargement...</div>
+        </div>
+      </div>
+
+      <div class="players-list-box">
+        <p class="waiting-label">Joueurs <span id="players-count">(0)</span></p>
+        <div id="players-list"></div>
+      </div>
+
+      <div id="host-controls" class="hidden">
+        <p class="waiting-hint">Tu es l'hôte — lance la partie quand tout le monde est prêt !</p>
+        <button class="btn btn-record" id="btn-start-game" onclick="startMultiGame()" disabled>
+          ⏳ En attente de joueurs...
+        </button>
+      </div>
+      <div id="guest-controls">
+        <p class="waiting-hint">En attente que l'hôte lance la partie...</p>
+        <div class="waiting-spinner"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════
+       ÉCRAN 6 : JEU (solo + multi)
   ═══════════════════════════════════════════ -->
   <div id="screen-game" class="screen">
     <div class="prep-header">
-      <button class="btn-back" onclick="goPrep()">← Retour</button>
+      <button class="btn-back" onclick="leaveGame()">← Retour</button>
       <div class="player-info">
         <span class="player-avatar" id="game-avatar">🎭</span>
         <span class="player-name" id="game-pseudo">Joueur</span>
@@ -136,7 +234,9 @@
       </div>
     </div>
 
+    <!-- Badge mode -->
     <div id="random-badge" class="random-badge hidden">🎲 Vidéo aléatoire !</div>
+    <div id="multi-badge" class="multi-badge hidden">👥 Mode multijoueur</div>
 
     <div class="game-content">
       <div class="video-wrapper">
@@ -157,7 +257,6 @@
       </div>
 
       <div class="game-controls">
-
         <div id="phase-preview" class="phase">
           <div class="phase-label">👀 Regarde et écoute bien !</div>
           <p class="phase-hint">Mémorise les sons, les intonations, le rythme.<br/>Quand tu es prêt à imiter, clique ci-dessous 🎤</p>
@@ -178,6 +277,11 @@
             <div class="rec-dot"></div>
             <span>Enregistrement...</span>
           </div>
+          <div class="audio-visualizer">
+            <div class="bar"></div><div class="bar"></div><div class="bar"></div>
+            <div class="bar"></div><div class="bar"></div><div class="bar"></div>
+            <div class="bar"></div><div class="bar"></div>
+          </div>
           <div class="recording-actions">
             <button id="btn-pause-rec" class="btn btn-pause-rec" onclick="pauseResumeRecording()">⏸ Pause</button>
             <button class="btn btn-stop-rec" onclick="stopRecordingEarly()">⏹ Terminer ici</button>
@@ -192,17 +296,96 @@
             <button class="btn btn-play" onclick="playResult()">▶ Écouter</button>
             <button class="btn btn-download" onclick="downloadAudio()">⬇️ Audio</button>
             <button class="btn btn-retry" onclick="retryFromPlayback()">🔄 Réessayer</button>
-            <button class="btn btn-send" onclick="goVote()">Voter 👍</button>
+            <button class="btn btn-send" id="btn-submit" onclick="submitPerformance()">Soumettre 👍</button>
           </div>
-          <p class="download-hint">💡 Fusion vidéo+audio complète arrive en V2 !</p>
+          <p class="download-hint">💡 Fusion vidéo+audio complète arrive bientôt !</p>
         </div>
-
       </div>
     </div>
   </div>
 
   <!-- ═══════════════════════════════════════════
-       ÉCRAN 5 : VOTE
+       ÉCRAN 7 : SPECTATEUR (multi — attend son tour)
+  ═══════════════════════════════════════════ -->
+  <div id="screen-spectator" class="screen">
+    <div class="prep-header">
+      <button class="btn-back" onclick="leaveSalon()">← Quitter</button>
+      <div class="player-info">
+        <span class="player-avatar" id="spec-avatar">🎭</span>
+        <span class="player-name" id="spec-pseudo">Joueur</span>
+      </div>
+    </div>
+    <div class="spectator-content">
+      <div class="spec-current-box">
+        <p class="waiting-label">En train de jouer</p>
+        <div class="spec-player-card" id="spec-current-player">
+          <span class="spec-avatar-big">🎭</span>
+          <span class="spec-name">...</span>
+        </div>
+      </div>
+      <div class="spec-progress">
+        <p class="waiting-label">Tour <span id="spec-turn">1</span> / <span id="spec-total">?</span></p>
+        <div class="spec-players-list" id="spec-players-list"></div>
+      </div>
+      <div class="spec-waiting">
+        <div class="waiting-spinner"></div>
+        <p>En attente de la performance...</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════
+       ÉCRAN 8 : VOTE MULTIJOUEUR
+  ═══════════════════════════════════════════ -->
+  <div id="screen-multi-vote" class="screen">
+    <div class="prep-header">
+      <button class="btn-back" onclick="leaveSalon()">← Quitter</button>
+      <div class="player-info">
+        <span class="player-avatar" id="mvote-avatar">🎭</span>
+        <span class="player-name" id="mvote-pseudo">Joueur</span>
+      </div>
+    </div>
+    <div class="multi-vote-content">
+      <h2>Vote pour cette imitation ! 🎭</h2>
+      <div class="mvote-player" id="mvote-player-info"></div>
+      <div class="mvote-video-wrap">
+        <video id="mvote-video" playsinline muted></video>
+        <audio id="mvote-audio"></audio>
+      </div>
+      <button class="btn btn-play-sm" onclick="playMvoteResult()">▶ Écouter l'imitation</button>
+      <div class="vote-buttons" style="margin-top:20px">
+        <button class="vote-btn excellent" onclick="castMultiVote(3)">
+          <span class="vote-icon">👍👍</span><span class="vote-label">Excellent !</span><span class="vote-pts">+30 pts</span>
+        </button>
+        <button class="vote-btn moyen" onclick="castMultiVote(1)">
+          <span class="vote-icon">👍</span><span class="vote-label">Moyen</span><span class="vote-pts">+10 pts</span>
+        </button>
+        <button class="vote-btn nul" onclick="castMultiVote(0)">
+          <span class="vote-icon">👎</span><span class="vote-label">Nul</span><span class="vote-pts">+0 pts</span>
+        </button>
+      </div>
+      <p class="mvote-skip hidden" id="mvote-own">C'est ta propre performance — les autres votent pour toi !</p>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════
+       ÉCRAN 9 : RÉSULTATS MULTIJOUEUR
+  ═══════════════════════════════════════════ -->
+  <div id="screen-multi-result" class="screen">
+    <div class="multi-result-content">
+      <h2 class="result-title" style="color:var(--yellow);font-family:'Bangers',cursive;font-size:36px;letter-spacing:2px">
+        🏆 Résultats finaux !
+      </h2>
+      <div id="multi-result-list" class="multi-result-list"></div>
+      <div class="result-actions" style="margin-top:24px">
+        <button class="btn btn-primary" onclick="playAgainMulti()">🔄 Rejouer</button>
+        <button class="btn btn-secondary" onclick="goHome()">🏠 Accueil</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════
+       ÉCRAN 10 : VOTE SOLO
   ═══════════════════════════════════════════ -->
   <div id="screen-vote" class="screen">
     <div class="vote-content">
@@ -226,7 +409,7 @@
   </div>
 
   <!-- ═══════════════════════════════════════════
-       ÉCRAN 6 : RÉSULTAT
+       ÉCRAN 11 : RÉSULTAT SOLO
   ═══════════════════════════════════════════ -->
   <div id="screen-result" class="screen">
     <div class="result-content">
@@ -264,6 +447,9 @@
       </div>
     </div>
   </div>
+
+  <!-- TOAST notification -->
+  <div id="toast" class="toast hidden"></div>
 
   <script src="script.js"></script>
 </body>
