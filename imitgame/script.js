@@ -659,43 +659,66 @@ async function leaveSalon(){
 function subscribeToSalon(){
   unsubscribeRealtime();
 
-  // Polling de secours toutes les 3 secondes au cas où le realtime rate quelque chose
+  // Polling toutes les 2 secondes — vérifie salon ET joueurs
   let lastStatus = '';
+  let lastPlayedCount = -1;
+
   const pollInterval = setInterval(async () => {
     if(!state.salonId){ clearInterval(pollInterval); return; }
-    const{data:salon}=await db.from('salons').select('*').eq('id',state.salonId).single();
-    if(!salon){ clearInterval(pollInterval); return; }
-    if(salon.status !== lastStatus){
-      lastStatus = salon.status;
-      handleSalonUpdate(salon);
+
+    // Recharge salon et joueurs en même temps
+    const [salonRes, playersRes] = await Promise.all([
+      db.from('salons').select('*').eq('id',state.salonId).single(),
+      db.from('players').select('*').eq('salon_id',state.salonId).order('created_at')
+    ]);
+
+    const salon   = salonRes.data;
+    const players = playersRes.data;
+    if(!salon || !players) return;
+
+    state.players = players;
+
+    const playedCount = players.filter(p=>p.has_played).length;
+    const statusChanged = salon.status !== lastStatus;
+    const playersChanged = playedCount !== lastPlayedCount;
+
+    lastStatus      = salon.status;
+    lastPlayedCount = playedCount;
+
+    if(statusChanged || playersChanged){
+      checkAndProgress(salon, players);
     }
-  }, 3000);
+  }, 2000);
 
   state.realtimeChannel = db
     .channel(`salon-${state.salonId}`)
-    .on('postgres_changes',{event:'*',schema:'public',table:'players',filter:`salon_id=eq.${state.salonId}`},
+    .on('postgres_changes',{event:'UPDATE',schema:'public',table:'salons',filter:`id=eq.${state.salonId}`},
       async () => {
-        const{data:players}=await db.from('players').select('*').eq('salon_id',state.salonId).order('created_at');
-        if(!players) return;
-        state.players = players;
-
-        if(document.getElementById('screen-waiting').classList.contains('active')){
-          refreshPlayersList();
-          return;
-        }
-
-        const allPlayed = players.every(p=>p.has_played);
-        if(allPlayed && state.isHost){
-          await db.from('salons').update({status:'voting', current_vote_index:0}).eq('id',state.salonId);
-        } else if(!allPlayed){
-          startNextTurn();
+        const [salonRes, playersRes] = await Promise.all([
+          db.from('salons').select('*').eq('id',state.salonId).single(),
+          db.from('players').select('*').eq('salon_id',state.salonId).order('created_at')
+        ]);
+        if(salonRes.data && playersRes.data){
+          state.players = playersRes.data;
+          checkAndProgress(salonRes.data, playersRes.data);
         }
       })
-    .on('postgres_changes',{event:'UPDATE',schema:'public',table:'salons',filter:`id=eq.${state.salonId}`},
-      (payload)=>{ handleSalonUpdate(payload.new); })
+    .on('postgres_changes',{event:'UPDATE',schema:'public',table:'players',filter:`salon_id=eq.${state.salonId}`},
+      async () => {
+        const [salonRes, playersRes] = await Promise.all([
+          db.from('salons').select('*').eq('id',state.salonId).single(),
+          db.from('players').select('*').eq('salon_id',state.salonId).order('created_at')
+        ]);
+        if(salonRes.data && playersRes.data){
+          state.players = playersRes.data;
+          if(document.getElementById('screen-waiting').classList.contains('active')){
+            refreshPlayersList();
+          }
+          checkAndProgress(salonRes.data, playersRes.data);
+        }
+      })
     .subscribe();
 
-  // Stocke le polling pour pouvoir l'arrêter
   state.pollInterval = pollInterval;
 }
 
@@ -704,51 +727,100 @@ function unsubscribeRealtime(){
   if(state.pollInterval){ clearInterval(state.pollInterval); state.pollInterval=null; }
 }
 
-async function handleSalonUpdate(salon){
+// Fonction centrale qui décide quoi faire selon l'état du salon et des joueurs
+async function checkAndProgress(salon, players){
+  if(!salon || !players) return;
+
   if(salon.video_ids) state.videoIds = JSON.parse(salon.video_ids);
-  state.currentRound = salon.current_round||0;
+  state.currentRound = salon.current_round || 0;
 
-  if(salon.status==='playing' || salon.status==='next_round'){
-    const{data:players}=await db.from('players').select('*').eq('salon_id',state.salonId).order('created_at');
-    state.players=players||[];
+  // ── Salle d'attente → ne fait rien sauf refresh liste ──
+  if(salon.status === 'waiting'){
+    if(document.getElementById('screen-waiting').classList.contains('active')){
+      refreshPlayersList();
+    }
+    return;
+  }
 
-    const nextPlayer = state.players.find(p=>!p.has_played);
-    if(!nextPlayer){
-      if(state.isHost) await db.from('salons').update({status:'voting',current_vote_index:0}).eq('id',state.salonId);
+  // ── Partie en cours ou round suivant ──
+  if(salon.status === 'playing' || salon.status === 'next_round'){
+    const allPlayed = players.every(p => p.has_played);
+
+    if(allPlayed){
+      // Tout le monde a joué → passe au vote (hôte uniquement)
+      if(state.isHost && salon.status !== 'voting'){
+        await db.from('salons').update({status:'voting', current_vote_index:0}).eq('id',state.salonId);
+      }
       return;
     }
 
-    const isMyTurn = nextPlayer.id === state.playerId;
-    const myPlayer = state.players.find(p=>p.id===state.playerId);
+    // Trouve le prochain joueur à jouer
+    const nextPlayer = players.find(p => !p.has_played);
+    if(!nextPlayer) return;
+
+    const isMyTurn  = nextPlayer.id === state.playerId;
+    const myPlayer  = players.find(p => p.id === state.playerId);
+    const iAlreadyPlayed = myPlayer?.has_played;
 
     if(isMyTurn){
-      // C'est mon tour !
-      const videoId = state.videoIds[state.currentRound];
-      const video   = VIDEOS.find(v=>v.id===videoId);
-      if(!video){ showToast('Vidéo introuvable 😕'); return; }
-      state.currentVideo = video;
-      loadGameScreen();
-    } else if(myPlayer?.has_played){
-      // J'ai déjà joué
-      showPhase('phase-waiting-others');
+      // C'est MON tour → lance le jeu si pas déjà dessus
+      if(!document.getElementById('screen-game').classList.contains('active') ||
+         document.getElementById('phase-waiting-others').classList.contains('active')){
+        const videoId = state.videoIds[state.currentRound];
+        const video   = VIDEOS.find(v => v.id === videoId);
+        if(!video){ showToast('Vidéo introuvable 😕'); return; }
+        state.currentVideo = video;
+        loadGameScreen();
+      }
+    } else if(iAlreadyPlayed){
+      // J'ai déjà joué → reste en attente
+      if(document.getElementById('screen-game').classList.contains('active')){
+        showPhase('phase-waiting-others');
+        // Met à jour la progression
+        const prog = document.getElementById('phase-waiting-progress');
+        if(prog) prog.innerHTML = players.map(p=>`
+          <div style="display:flex;align-items:center;gap:8px;padding:6px 0;font-size:13px;color:var(--text-muted)">
+            <span>${p.avatar}</span><span>${escapeHtml(p.pseudo)}</span>
+            <span style="margin-left:auto">${p.has_played?'✅':'⏳'}</span>
+          </div>`).join('');
+      }
     } else {
-      // Pas encore mon tour — reste en attente visible
+      // Pas encore mon tour → message d'attente
       if(document.getElementById('screen-waiting').classList.contains('active')){
         const gc = document.getElementById('guest-controls');
         if(gc) gc.innerHTML = `
-          <p class="waiting-hint">La partie a commencé ! En attente de ton tour... 🎬</p>
+          <p class="waiting-hint">⏳ La partie a commencé ! En attente de ton tour...</p>
           <div class="waiting-spinner"></div>`;
       }
     }
+    return;
+  }
 
-  } else if(salon.status==='voting'){
-    const{data:players}=await db.from('players').select('*').eq('salon_id',state.salonId).order('created_at');
-    state.players=players||[];
-    loadCollectiveVoteScreen(salon);
+  // ── Vote collectif ──
+  if(salon.status === 'voting'){
+    if(!document.getElementById('screen-collective-vote').classList.contains('active')){
+      loadCollectiveVoteScreen(salon);
+    } else {
+      // Vérifie si l'index de vote a changé
+      if(salon.current_vote_index !== state.voteQueueIndex){
+        state.voteQueueIndex = salon.current_vote_index;
+        state.hasVotedThisPerf = false;
+        showCollectiveVote();
+      }
+    }
+    return;
+  }
 
-  } else if(salon.status==='finished'){
+  // ── Fin ──
+  if(salon.status === 'finished'){
     showMultiResults();
   }
+}
+
+async function handleSalonUpdate(salon){
+  const{data:players}=await db.from('players').select('*').eq('salon_id',state.salonId).order('created_at');
+  state.players = players||[];
+  checkAndProgress(salon, state.players);
 }
 
 // ─────────────────────────────────────────────────────
