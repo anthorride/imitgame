@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>ImitGame 🎭</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Bangers&family=Nunito:wght@400;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <!-- ═══════════════════════════════════════════
+       ÉCRAN 1 : ACCUEIL
+  ═══════════════════════════════════════════ -->
+  <div id="screen-home" class="screen active">
+    <div class="home-bg"></div>
+    <div class="home-content">
+      <div class="logo-wrap">
+        <span class="logo-icon">🎭</span>
+        <h1 class="logo-title">ImitGame</h1>
+        <p class="logo-sub">Le jeu d'imitation vidéo !</p>
+      </div>
+
+      <div class="home-profile" id="home-profile" onclick="goProfile()">
+        <span class="home-avatar" id="home-avatar">🎭</span>
+        <div class="home-profile-info">
+          <span class="home-profile-name" id="home-profile-name">Choisir un profil</span>
+          <span class="home-profile-score" id="home-profile-score"></span>
+        </div>
+        <span class="home-profile-edit">✏️</span>
+      </div>
+
+      <div class="home-cards">
+        <div class="card card-solo" onclick="startSolo()">
+          <div class="card-icon">🎬</div>
+          <div class="card-label">Jouer seul</div>
+          <div class="card-desc">Choisis ou tire au sort une vidéo</div>
+        </div>
+        <div class="card card-multi" onclick="goToLobby()">
+          <div class="card-icon">👥</div>
+          <div class="card-label">Multijoueur</div>
+          <div class="card-desc">Crée ou rejoins un salon</div>
+          <div class="card-badge">Bientôt</div>
+        </div>
+      </div>
+
+      <div class="leaderboard-preview">
+        <div class="lb-header">
+          <h3>🏆 Meilleurs joueurs</h3>
+          <button class="btn-reset-lb" onclick="confirmResetLeaderboard()">🗑 Reset</button>
+        </div>
+        <div id="leaderboard-list"><p class="empty-lb">Sois le premier à jouer !</p></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════
+       ÉCRAN 2 : PROFIL
+  ═══════════════════════════════════════════ -->
+  <div id="screen-profile" class="screen">
+    <div class="profile-content">
+      <button class="btn-back" onclick="goHome()" style="align-self:flex-start;margin-bottom:8px">← Retour</button>
+      <h2 class="profile-title">Mon profil</h2>
+      <div class="avatar-section">
+        <div class="avatar-current" id="avatar-current">🎭</div>
+        <p class="avatar-hint">Choisis ton avatar</p>
+        <div class="avatar-grid" id="avatar-grid"></div>
+      </div>
+      <div class="pseudo-section">
+        <label class="input-label">Mon pseudo</label>
+        <input id="pseudo-input" type="text" placeholder="Ton pseudo..." maxlength="20" />
+      </div>
+      <button class="btn btn-primary" onclick="saveProfile()">✅ Enregistrer</button>
+      <div class="profile-stats" id="profile-stats"></div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════
+       ÉCRAN 3 : CHOIX DE VIDÉO
+  ═══════════════════════════════════════════ -->
+  <div id="screen-prep" class="screen">
+    <div class="prep-header">
+      <button class="btn-back" onclick="goHome()">← Retour</button>
+      <div class="player-info">
+        <span class="player-avatar" id="display-avatar">🎭</span>
+        <span class="player-name" id="display-pseudo">Joueur</span>
+        <span class="score-badge">⭐ <span id="display-score">0</span> pts</span>
+      </div>
+    </div>
+    <div class="prep-content">
+      <div class="mode-tabs">
+        <button class="mode-tab active" id="tab-choose" onclick="setMode('choose')">🎬 Choisir</button>
+        <button class="mode-tab" id="tab-random" onclick="setMode('random')">🎲 Aléatoire</button>
+      </div>
+      <div id="mode-choose">
+        <div class="filter-row">
+          <button class="filter-btn active" onclick="filterVideos('tous',this)">Tous</button>
+          <button class="filter-btn" onclick="filterVideos('facile',this)">⭐ Facile</button>
+          <button class="filter-btn" onclick="filterVideos('moyen',this)">⭐⭐ Moyen</button>
+          <button class="filter-btn" onclick="filterVideos('hard',this)">⭐⭐⭐ Hard</button>
+        </div>
+        <p class="prep-hint">≤10s = Facile · 11-20s = Moyen · >20s = Hard</p>
+        <div class="video-grid" id="video-grid"></div>
+      </div>
+      <div id="mode-random" class="hidden">
+        <div class="random-box">
+          <div class="random-icon" id="random-icon">🎲</div>
+          <h3>Vidéo surprise !</h3>
+          <p>Une vidéo au hasard parmi <strong id="random-count">22</strong> disponibles.</p>
+          <div class="random-filters">
+            <p class="filter-label">Difficulté :</p>
+            <div class="filter-row">
+              <button class="filter-btn active" onclick="setRandomDiff('tous',this)">Tous</button>
+              <button class="filter-btn" onclick="setRandomDiff('facile',this)">⭐ Facile</button>
+              <button class="filter-btn" onclick="setRandomDiff('moyen',this)">⭐⭐ Moyen</button>
+              <button class="filter-btn" onclick="setRandomDiff('hard',this)">⭐⭐⭐ Hard</button>
+            </div>
+          </div>
+          <button class="btn btn-random" onclick="launchRandom()">🎲 Je tente ma chance !</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════
+       ÉCRAN 4 : JEU
+  ═══════════════════════════════════════════ -->
+  <div id="screen-game" class="screen">
+    <div class="prep-header">
+      <button class="btn-back" onclick="goPrep()">← Retour</button>
+      <div class="player-info">
+        <span class="player-avatar" id="game-avatar">🎭</span>
+        <span class="player-name" id="game-pseudo">Joueur</span>
+        <span class="score-badge">⭐ <span id="game-score">0</span> pts</span>
+      </div>
+    </div>
+
+    <div id="random-badge" class="random-badge hidden">🎲 Vidéo aléatoire !</div>
+
+    <div class="game-content">
+      <div class="video-wrapper">
+        <video id="main-video" playsinline></video>
+      </div>
+
+      <div class="video-controls">
+        <div class="progress-bar-wrap">
+          <div id="progress-bar-bg" class="progress-bar-bg" onclick="seekVideo(event)">
+            <div id="progress-bar-fill" class="progress-bar-fill"></div>
+          </div>
+          <span id="time-display" class="time-display">0:00 / 0:00</span>
+        </div>
+        <div class="ctrl-buttons">
+          <button class="ctrl-btn" onclick="restartVideo()">⏮</button>
+          <button class="ctrl-btn ctrl-main" id="btn-playpause" onclick="togglePlayPause()">▶</button>
+        </div>
+      </div>
+
+      <div class="game-controls">
+
+        <div id="phase-preview" class="phase">
+          <div class="phase-label">👀 Regarde, écoute et mémorise le spectre !</div>
+          <p class="phase-hint">Le spectre audio t'aide à repérer les sons à imiter 🎵<br/>Quand tu es prêt, clique ci-dessous.</p>
+          <button class="btn btn-record" onclick="readyToImitate()">🎤 Je suis prêt !</button>
+        </div>
+
+        <div id="phase-ready" class="phase">
+          <div class="phase-label">🎬 Mode imitation</div>
+          <p class="phase-hint">Le spectre de la vidéo originale s'affiche pendant que tu imites.<br/>Cale ta voix sur les pics ! 🎵</p>
+          <div class="phase-actions">
+            <button class="btn btn-record" onclick="startRecording()">🎤 Lancer !</button>
+            <button class="btn btn-secondary" onclick="showPhase('phase-preview')">👀 Revoir</button>
+          </div>
+        </div>
+
+        <div id="phase-recording" class="phase">
+          <div class="recording-indicator">
+            <div class="rec-dot"></div>
+            <span>Enregistrement...</span>
+          </div>
+          <div class="recording-actions">
+            <button id="btn-pause-rec" class="btn btn-pause-rec" onclick="pauseResumeRecording()">⏸ Pause</button>
+            <button class="btn btn-stop-rec" onclick="stopRecordingEarly()">⏹ Terminer ici</button>
+            <button class="btn btn-retry-rec" onclick="stopAndRetryRecording()">🔄 Recommencer</button>
+          </div>
+        </div>
+
+        <div id="phase-playback" class="phase">
+          <div class="phase-label">🎉 C'est terminé !</div>
+          <p class="phase-hint">Écoute ton imitation synchronisée 🔊</p>
+          <div class="playback-actions">
+            <button class="btn btn-play" onclick="playResult()">▶ Écouter</button>
+            <button class="btn btn-download" onclick="downloadAudio()">⬇️ Audio</button>
+            <button class="btn btn-retry" onclick="retryFromPlayback()">🔄 Réessayer</button>
+            <button class="btn btn-send" onclick="goVote()">Voter 👍</button>
+          </div>
+          <p class="download-hint">💡 Fusion vidéo+audio complète arrive en V2 !</p>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════
+       ÉCRAN 5 : VOTE
+  ═══════════════════════════════════════════ -->
+  <div id="screen-vote" class="screen">
+    <div class="vote-content">
+      <h2>Comment tu t'es débrouillé ? 😄</h2>
+      <p class="vote-sub">Vote pour ta performance !</p>
+      <div class="vote-replay">
+        <button class="btn btn-play-sm" onclick="playResultAgain()">▶ Revoir</button>
+      </div>
+      <div class="vote-buttons">
+        <button class="vote-btn excellent" onclick="castVote(3)">
+          <span class="vote-icon">👍👍</span><span class="vote-label">Excellent !</span><span class="vote-pts">+30 pts</span>
+        </button>
+        <button class="vote-btn moyen" onclick="castVote(1)">
+          <span class="vote-icon">👍</span><span class="vote-label">Moyen</span><span class="vote-pts">+10 pts</span>
+        </button>
+        <button class="vote-btn nul" onclick="castVote(0)">
+          <span class="vote-icon">👎</span><span class="vote-label">Nul</span><span class="vote-pts">+0 pts</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════
+       ÉCRAN 6 : RÉSULTAT
+  ═══════════════════════════════════════════ -->
+  <div id="screen-result" class="screen">
+    <div class="result-content">
+      <div class="result-emoji" id="result-emoji">🎉</div>
+      <h2 class="result-title" id="result-title">Bien joué !</h2>
+      <p class="result-pts" id="result-pts">+10 points !</p>
+      <div class="result-total">Score total : <strong id="result-total-score">0</strong> pts</div>
+      <div class="result-actions">
+        <button class="btn btn-primary" onclick="goPrep()">🎬 Rejouer</button>
+        <button class="btn btn-random-again" onclick="launchRandomFromResult()">🎲 Aléatoire</button>
+        <button class="btn btn-secondary" onclick="goHome()">🏠 Accueil</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL MICRO -->
+  <div id="modal-micro" class="modal hidden">
+    <div class="modal-box">
+      <div class="modal-icon">🎤</div>
+      <h3>Accès au micro refusé</h3>
+      <p>Clique sur 🔒 dans ta barre d'adresse et autorise le micro.</p>
+      <button class="btn btn-primary" onclick="closeModal('modal-micro')">Compris</button>
+    </div>
+  </div>
+
+  <!-- MODAL RESET -->
+  <div id="modal-reset" class="modal hidden">
+    <div class="modal-box">
+      <div class="modal-icon">🗑</div>
+      <h3>Remettre à zéro ?</h3>
+      <p>Le classement sera effacé définitivement.</p>
+      <div style="display:flex;gap:12px;justify-content:center;margin-top:8px">
+        <button class="btn btn-primary" onclick="resetLeaderboard()">Oui, effacer</button>
+        <button class="btn btn-secondary" onclick="closeModal('modal-reset')">Annuler</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>
