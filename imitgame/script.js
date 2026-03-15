@@ -629,7 +629,30 @@ function subscribeToSalon(){
   state.realtimeChannel = db
     .channel(`salon-${state.salonId}`)
     .on('postgres_changes',{event:'*',schema:'public',table:'players',filter:`salon_id=eq.${state.salonId}`},
-      ()=>{ refreshPlayersList(); })
+      async (payload) => {
+        // Recharge tous les joueurs
+        const{data:players}=await db.from('players').select('*').eq('salon_id',state.salonId).order('created_at');
+        if(!players) return;
+        state.players = players;
+
+        // Si on est en salle d'attente, rafraîchit la liste
+        if(document.getElementById('screen-waiting').classList.contains('active')){
+          refreshPlayersList();
+          return;
+        }
+
+        // Si la partie est en cours, vérifie si c'est mon tour ou si tout le monde a joué
+        if(document.getElementById('screen-game').classList.contains('active') ||
+           document.getElementById('screen-waiting').classList.contains('active')){
+
+          const allPlayed = players.every(p=>p.has_played);
+          if(allPlayed && state.isHost){
+            await db.from('salons').update({status:'voting', current_vote_index:0}).eq('id',state.salonId);
+          } else if(!allPlayed){
+            startNextTurn();
+          }
+        }
+      })
     .on('postgres_changes',{event:'UPDATE',schema:'public',table:'salons',filter:`id=eq.${state.salonId}`},
       (payload)=>{ handleSalonUpdate(payload.new); })
     .subscribe();
@@ -640,28 +663,27 @@ function unsubscribeRealtime(){
 }
 
 async function handleSalonUpdate(salon){
-  // Met à jour les videoIds et currentRound localement
   if(salon.video_ids) state.videoIds = JSON.parse(salon.video_ids);
   state.currentRound = salon.current_round||0;
 
   if(salon.status==='playing'){
-    // Lance le tour du bon joueur
     const{data:players}=await db.from('players').select('*').eq('salon_id',state.salonId).order('created_at');
     state.players=players||[];
     state.currentTurnIndex=0;
     startNextTurn();
 
   } else if(salon.status==='voting'){
-    // Lance la phase de vote collectif
+    // Recharge les joueurs avant de charger le vote
+    const{data:players}=await db.from('players').select('*').eq('salon_id',state.salonId).order('created_at');
+    state.players=players||[];
     loadCollectiveVoteScreen(salon);
 
   } else if(salon.status==='next_round'){
-    // Passe au tour suivant
     state.currentRound = salon.current_round;
+    // Recharge les joueurs avec has_played remis à false
     const{data:players}=await db.from('players').select('*').eq('salon_id',state.salonId).order('created_at');
     state.players=players||[];
     state.currentTurnIndex=0;
-    // Reset has_played pour ce nouveau round
     startNextTurn();
 
   } else if(salon.status==='finished'){
@@ -683,18 +705,24 @@ async function startMultiGame(){
 // 23. TOURS DE JEU
 // ─────────────────────────────────────────────────────
 function startNextTurn(){
-  // Trouve le premier joueur qui n'a pas encore joué CE round
-  const nextPlayer = state.players.find(p=>!p.has_played);
+  // Recharge toujours depuis state.players (mis à jour par realtime)
+  const nextPlayer = state.players.find(p => !p.has_played);
+
   if(!nextPlayer){
-    // Tout le monde a joué → vote
-    if(state.isHost) db.from('salons').update({status:'voting'}).eq('id',state.salonId);
+    // Tout le monde a joué → l'hôte passe au vote
+    if(state.isHost){
+      db.from('salons').update({status:'voting', current_vote_index:0}).eq('id',state.salonId);
+    } else {
+      // Non-hôte : reste en attente que l'hôte déclenche le vote
+      showPhase('phase-waiting-others');
+    }
     return;
   }
+
   state.currentTurnIndex = state.players.indexOf(nextPlayer);
   const isMyTurn = nextPlayer.id === state.playerId;
 
-  // Met à jour la progression
-  const playedCount = state.players.filter(p=>p.has_played).length;
+  // Met à jour la progression visible
   const prog = document.getElementById('phase-waiting-progress');
   if(prog) prog.innerHTML = state.players.map(p=>`
     <div style="display:flex;align-items:center;gap:8px;padding:6px 0;font-size:13px;color:var(--text-muted)">
@@ -703,15 +731,20 @@ function startNextTurn(){
     </div>`).join('');
 
   if(isMyTurn){
+    // C'est mon tour !
     const videoId = state.videoIds[state.currentRound];
     const video   = VIDEOS.find(v=>v.id===videoId);
+    if(!video){ showToast('Vidéo introuvable 😕'); return; }
     state.currentVideo = video;
     loadGameScreen();
-  } else {
-    // Déjà joué → reste en attente
-    if(document.getElementById('screen-game').classList.contains('active')){
+  } else if(state.playerId && state.players.find(p=>p.id===state.playerId)?.has_played){
+    // J'ai déjà joué → attente des autres
+    if(!document.getElementById('phase-waiting-others').classList.contains('active')){
       showPhase('phase-waiting-others');
     }
+  } else {
+    // Ce n'est pas encore mon tour → attente
+    showPhase('phase-waiting-others');
   }
 }
 
