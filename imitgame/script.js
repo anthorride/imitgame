@@ -686,6 +686,10 @@ function subscribeToSalon(){
     lastPlayedCount = playedCount;
 
     if(statusChanged || playersChanged){
+      // Toujours rafraîchir la liste en salle d'attente
+      if(document.getElementById('screen-waiting').classList.contains('active')){
+        refreshPlayersList();
+      }
       checkAndProgress(salon, players);
     }
   }, 2000);
@@ -701,6 +705,15 @@ function subscribeToSalon(){
         if(salonRes.data && playersRes.data){
           state.players = playersRes.data;
           checkAndProgress(salonRes.data, playersRes.data);
+        }
+      })
+    .on('postgres_changes',{event:'INSERT',schema:'public',table:'players',filter:`salon_id=eq.${state.salonId}`},
+      async () => {
+        const{data:players}=await db.from('players').select('*').eq('salon_id',state.salonId).order('created_at');
+        if(!players) return;
+        state.players = players;
+        if(document.getElementById('screen-waiting').classList.contains('active')){
+          refreshPlayersList();
         }
       })
     .on('postgres_changes',{event:'UPDATE',schema:'public',table:'players',filter:`salon_id=eq.${state.salonId}`},
