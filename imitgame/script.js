@@ -552,17 +552,41 @@ function generateCode(){
 // ─────────────────────────────────────────────────────
 // 19. REJOINDRE UN SALON
 // ─────────────────────────────────────────────────────
-async function joinSalon(){
-  const code=document.getElementById('join-code-input').value.trim().toUpperCase();
-  if(code.length<4){showJoinError();return;}
+let joiningInProgress = false;
 
+async function joinSalon(){
+  if(joiningInProgress) return; // empêche le double appel
+  joiningInProgress = true;
+
+  const code=document.getElementById('join-code-input').value.trim().toUpperCase();
+  if(code.length<4){ showJoinError(); joiningInProgress=false; return; }
+
+  // Vérifie si ce joueur est déjà dans ce salon
   const{data:salon,error}=await db.from('salons').select('*').eq('code',code).eq('status','waiting').single();
-  if(error||!salon){showJoinError();return;}
+  if(error||!salon){ showJoinError(); joiningInProgress=false; return; }
+
+  // Vérifie si le joueur existe déjà
+  const{data:existing}=await db.from('players').select('*')
+    .eq('salon_id',salon.id).eq('pseudo',state.pseudo);
+  if(existing && existing.length>0){
+    // Joueur déjà présent — réutilise l'entrée existante
+    const player = existing[0];
+    state.salonId   = salon.id;
+    state.salonCode = salon.code;
+    state.playerId  = player.id;
+    state.isHost    = false;
+    state.isMulti   = true;
+    state.videoIds  = JSON.parse(salon.video_ids||'[]');
+    state.currentRound = salon.current_round||0;
+    joiningInProgress = false;
+    enterWaitingRoom(salon);
+    return;
+  }
 
   const{data:player,error:pe}=await db.from('players').insert({
     salon_id:salon.id, pseudo:state.pseudo, avatar:state.avatar, is_host:false, score:0
   }).select().single();
-  if(pe){showJoinError();return;}
+  if(pe){ showJoinError(); joiningInProgress=false; return; }
 
   state.salonId   = salon.id;
   state.salonCode = salon.code;
@@ -571,7 +595,7 @@ async function joinSalon(){
   state.isMulti   = true;
   state.videoIds  = JSON.parse(salon.video_ids||'[]');
   state.currentRound = salon.current_round||0;
-
+  joiningInProgress = false;
   enterWaitingRoom(salon);
 }
 
@@ -684,25 +708,43 @@ async function handleSalonUpdate(salon){
   if(salon.video_ids) state.videoIds = JSON.parse(salon.video_ids);
   state.currentRound = salon.current_round||0;
 
-  if(salon.status==='playing'){
+  if(salon.status==='playing' || salon.status==='next_round'){
     const{data:players}=await db.from('players').select('*').eq('salon_id',state.salonId).order('created_at');
     state.players=players||[];
-    state.currentTurnIndex=0;
-    startNextTurn();
+
+    const nextPlayer = state.players.find(p=>!p.has_played);
+    if(!nextPlayer){
+      if(state.isHost) await db.from('salons').update({status:'voting',current_vote_index:0}).eq('id',state.salonId);
+      return;
+    }
+
+    const isMyTurn = nextPlayer.id === state.playerId;
+    const myPlayer = state.players.find(p=>p.id===state.playerId);
+
+    if(isMyTurn){
+      // C'est mon tour !
+      const videoId = state.videoIds[state.currentRound];
+      const video   = VIDEOS.find(v=>v.id===videoId);
+      if(!video){ showToast('Vidéo introuvable 😕'); return; }
+      state.currentVideo = video;
+      loadGameScreen();
+    } else if(myPlayer?.has_played){
+      // J'ai déjà joué
+      showPhase('phase-waiting-others');
+    } else {
+      // Pas encore mon tour — reste en attente visible
+      if(document.getElementById('screen-waiting').classList.contains('active')){
+        const gc = document.getElementById('guest-controls');
+        if(gc) gc.innerHTML = `
+          <p class="waiting-hint">La partie a commencé ! En attente de ton tour... 🎬</p>
+          <div class="waiting-spinner"></div>`;
+      }
+    }
 
   } else if(salon.status==='voting'){
-    // Recharge les joueurs avant de charger le vote
     const{data:players}=await db.from('players').select('*').eq('salon_id',state.salonId).order('created_at');
     state.players=players||[];
     loadCollectiveVoteScreen(salon);
-
-  } else if(salon.status==='next_round'){
-    state.currentRound = salon.current_round;
-    // Recharge les joueurs avec has_played remis à false
-    const{data:players}=await db.from('players').select('*').eq('salon_id',state.salonId).order('created_at');
-    state.players=players||[];
-    state.currentTurnIndex=0;
-    startNextTurn();
 
   } else if(salon.status==='finished'){
     showMultiResults();
