@@ -317,35 +317,28 @@
     </div>
     <div class="collective-vote-content">
 
-      <!-- Indicateur de progression -->
       <div class="cvote-progress">
         Prestation <span id="cvote-current">1</span> / <span id="cvote-total">?</span>
       </div>
 
-      <!-- Qui joue -->
       <div class="cvote-player-info" id="cvote-player-info"></div>
 
-      <!-- Lecteur vidéo + audio -->
       <div class="video-wrapper" style="max-width:380px">
         <video id="cvote-video" playsinline muted></video>
       </div>
-      <audio id="cvote-audio"></audio>
 
-      <!-- Contrôle hôte -->
-      <div id="cvote-host-ctrl" class="hidden">
-        <button class="btn btn-play" id="btn-cvote-launch" onclick="launchCollectivePlayback()">
-          ▶ Lancer la prestation pour tous
-        </button>
-      </div>
-      <div id="cvote-guest-waiting" class="cvote-waiting-msg">
-        <div class="waiting-spinner" style="width:28px;height:28px;margin:0 auto 8px"></div>
-        <p>L'hôte va lancer la prestation...</p>
-      </div>
+      <!-- Chaque joueur contrôle sa propre lecture -->
+      <button class="btn btn-play" id="btn-cvote-launch" onclick="launchCollectivePlayback()">
+        ▶ Voir la prestation
+      </button>
 
-      <!-- Boutons de vote -->
       <div id="cvote-vote-section" class="hidden">
-        <p class="cvote-vote-label" id="cvote-vote-label">Vote pour cette performance !</p>
-        <div class="vote-buttons">
+        <p class="cvote-vote-label">Vote pour cette performance !</p>
+        <p class="cvote-own-msg hidden" id="cvote-own-msg">C'est ta propre performance 😄</p>
+        <div class="cvote-votes-received hidden" id="cvote-votes-received">
+          <p style="color:var(--text-muted);font-size:13px">Les autres votent pour toi...</p>
+        </div>
+        <div class="vote-buttons" style="margin-top:16px">
           <button class="vote-btn excellent" onclick="castCollectiveVote(3)">
             <span class="vote-icon">👍👍</span><span class="vote-label">Excellent !</span><span class="vote-pts">+30 pts</span>
           </button>
@@ -356,14 +349,8 @@
             <span class="vote-icon">👎</span><span class="vote-label">Nul</span><span class="vote-pts">+0 pts</span>
           </button>
         </div>
-        <p class="cvote-own-msg hidden" id="cvote-own-msg">C'est ta propre performance — les autres votent pour toi ! 😄</p>
-        <div class="cvote-votes-received hidden" id="cvote-votes-received">
-          <div class="waiting-spinner" style="width:24px;height:24px;margin:0 auto 6px"></div>
-          <p>En attente des votes des autres...</p>
-        </div>
       </div>
 
-      <!-- Résultat du vote avant de passer au suivant -->
       <div id="cvote-result-section" class="hidden">
         <div class="cvote-result-box">
           <div class="cvote-result-emoji" id="cvote-result-emoji">🏆</div>
@@ -379,6 +366,10 @@
           <p>L'hôte passe à la suite...</p>
         </div>
       </div>
+
+      <!-- Éléments cachés pour compatibilité -->
+      <div id="cvote-host-ctrl" class="hidden"></div>
+      <div id="cvote-guest-waiting" class="hidden"></div>
 
     </div>
   </div>

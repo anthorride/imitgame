@@ -825,22 +825,10 @@ async function checkAndProgress(salon, players){
   // ── Vote collectif ──
   if(salon.status === 'voting'){
     if(!document.getElementById('screen-collective-vote').classList.contains('active')){
-      // Charge l'écran de vote
       loadCollectiveVoteScreen(salon);
     } else {
-      // Déjà sur l'écran de vote
-      const newVoteIndex = salon.current_vote_index || 0;
-
-      // L'hôte a lancé la lecture (votes_this_round correspond à l'index courant)
-      const hostLaunched = (salon.votes_this_round === newVoteIndex + 1);
-      const btnDisabled  = document.getElementById('btn-cvote-launch')?.disabled;
-
-      if(hostLaunched && !btnDisabled && !state.isHost){
-        // Le guest lance aussi la lecture
-        launchCollectivePlayback();
-      }
-
       // L'hôte a passé à la prestation suivante
+      const newVoteIndex = salon.current_vote_index || 0;
       if(newVoteIndex !== state.voteQueueIndex){
         state.voteQueueIndex   = newVoteIndex;
         state.hasVotedThisPerf = false;
@@ -982,8 +970,7 @@ async function loadCollectiveVoteScreen(salon){
 }
 
 function showCollectiveVote(){
-  if(state.voteQueueIndex>=state.voteQueue.length){
-    // Toutes les perfs votées → next round ou fin
+  if(state.voteQueueIndex >= state.voteQueue.length){
     if(state.isHost) advanceRound();
     return;
   }
@@ -993,50 +980,57 @@ function showCollectiveVote(){
   const isOwn  = perf.player_id === state.playerId;
 
   // Met à jour l'interface
-  document.getElementById('cvote-avatar').textContent = state.avatar;
-  document.getElementById('cvote-pseudo').textContent = state.pseudo;
-  document.getElementById('cvote-score').textContent  = state.score;
-  document.getElementById('cvote-current').textContent = state.voteQueueIndex+1;
+  document.getElementById('cvote-avatar').textContent  = state.avatar;
+  document.getElementById('cvote-pseudo').textContent  = state.pseudo;
+  document.getElementById('cvote-score').textContent   = state.score;
+  document.getElementById('cvote-current').textContent = state.voteQueueIndex + 1;
   document.getElementById('cvote-total').textContent   = state.voteQueue.length;
 
-  document.getElementById('cvote-player-info').innerHTML=`
+  document.getElementById('cvote-player-info').innerHTML = `
     <span class="cvote-player-avatar">${player?.avatar||'🎭'}</span>
     <span class="cvote-player-name">${escapeHtml(player?.pseudo||'?')}</span>`;
 
-  // Charge vidéo + audio — force reload complet
+  // Charge vidéo
   const videoId = state.videoIds[state.currentRound];
-  const video   = VIDEOS.find(v=>v.id===videoId);
+  const video   = VIDEOS.find(v => v.id === videoId);
   const cvVideo = document.getElementById('cvote-video');
-  const cvAudio = document.getElementById('cvote-audio');
-
-  // Reset vidéo
   cvVideo.pause();
-  cvVideo.removeAttribute('src');
-  cvVideo.load();
-  if(video){
-    cvVideo.src = video.url;
-    cvVideo.muted = true;
-    cvVideo.load();
-  }
+  cvVideo.muted = true;
+  if(video){ cvVideo.src = video.url; cvVideo.load(); }
 
-  // Reset audio
-  cvAudio.pause();
-  cvAudio.removeAttribute('src');
-  cvAudio.load();
+  // Charge audio dans un objet Audio séparé (plus fiable)
+  if(state.currentVoteAudio){
+    state.currentVoteAudio.pause();
+    state.currentVoteAudio = null;
+  }
   if(perf.audio_url){
-    cvAudio.src = perf.audio_url;
-    cvAudio.load();
+    state.currentVoteAudio = new Audio(perf.audio_url);
   }
 
-  // Reset UI
+  // Reset UI — chaque joueur contrôle sa propre lecture
   document.getElementById('cvote-vote-section').classList.add('hidden');
   document.getElementById('cvote-result-section').classList.add('hidden');
-  document.getElementById('cvote-votes-received').classList.add('hidden');
+  document.getElementById('cvote-host-ctrl').classList.add('hidden');
+  document.getElementById('cvote-guest-waiting').classList.add('hidden');
+
+  // Bouton de lecture individuel pour tous
+  const launchBtn = document.getElementById('btn-cvote-launch');
+  launchBtn.disabled = false;
+  launchBtn.textContent = '▶ Voir la prestation';
+  launchBtn.classList.remove('hidden');
+
+  // Message si c'est ta propre perf
   document.getElementById('cvote-own-msg').classList.toggle('hidden', !isOwn);
-  document.getElementById('cvote-host-ctrl').classList.toggle('hidden', !state.isHost);
-  document.getElementById('cvote-guest-waiting').classList.toggle('hidden', state.isHost);
-  document.getElementById('btn-cvote-launch').disabled = false;
-  document.getElementById('btn-cvote-launch').textContent = '▶ Lancer la prestation pour tous';
+
+  // Boutons de vote — désactivés pour sa propre perf
+  document.getElementById('cvote-vote-section').classList.remove('hidden');
+  if(isOwn){
+    document.querySelectorAll('.vote-btn').forEach(b=>{ b.style.opacity='0.3'; b.style.pointerEvents='none'; });
+    document.getElementById('cvote-votes-received').classList.remove('hidden');
+  } else {
+    document.querySelectorAll('.vote-btn').forEach(b=>{ b.style.opacity='1'; b.style.pointerEvents='auto'; });
+    document.getElementById('cvote-votes-received').classList.add('hidden');
+  }
 
   state.hasVotedThisPerf = false;
   showScreen('screen-collective-vote');
@@ -1044,62 +1038,35 @@ function showCollectiveVote(){
 
 function launchCollectivePlayback(){
   const cvVideo = document.getElementById('cvote-video');
-  const cvAudio = document.getElementById('cvote-audio');
-  const perf    = state.voteQueue[state.voteQueueIndex];
-  const isOwn   = perf?.player_id === state.playerId;
+  const btn     = document.getElementById('btn-cvote-launch');
 
-  document.getElementById('btn-cvote-launch').disabled = true;
-  document.getElementById('btn-cvote-launch').textContent = '⏳ Chargement...';
-  document.getElementById('cvote-guest-waiting').classList.add('hidden');
+  btn.disabled     = true;
+  btn.textContent  = '⏳ Chargement...';
 
-  // Notifie les autres clients que la lecture est lancée
-  if(state.isHost){
-    db.from('salons').update({
-      votes_this_round: state.voteQueueIndex + 1
-    }).eq('id', state.salonId);
-  }
-
-  // Recharge proprement vidéo et audio
-  cvVideo.pause();
-  cvVideo.muted = true;
-  cvVideo.currentTime = 0;
-
-  const hasAudio = perf?.audio_url && perf.audio_url.length > 0;
-
-  function startPlayback(){
-    document.getElementById('btn-cvote-launch').textContent = '▶ En cours...';
-
-    // Lance vidéo
+  function doPlay(){
+    btn.textContent = '▶ En cours...';
+    cvVideo.muted       = true;
+    cvVideo.currentTime = 0;
     cvVideo.play().catch(e => console.warn('video:', e));
 
-    // Lance audio si disponible
-    if(hasAudio){
-      cvAudio.currentTime = 0;
-      cvAudio.play().catch(e => console.warn('audio:', e));
+    if(state.currentVoteAudio){
+      state.currentVoteAudio.currentTime = 0;
+      state.currentVoteAudio.play().catch(e => console.warn('audio:', e));
     }
 
-    // Affiche les boutons de vote
-    document.getElementById('cvote-vote-section').classList.remove('hidden');
-    document.getElementById('cvote-own-msg').classList.toggle('hidden', !isOwn);
-    if(isOwn){
-      document.getElementById('cvote-votes-received').classList.remove('hidden');
-      document.querySelectorAll('.vote-btn').forEach(b=>{ b.style.opacity='0.3'; b.style.pointerEvents='none'; });
-    } else {
-      document.querySelectorAll('.vote-btn').forEach(b=>{ b.style.opacity='1'; b.style.pointerEvents='auto'; });
-    }
-
-    cvVideo.onended = () => { if(hasAudio) cvAudio.pause(); };
+    cvVideo.onended = () => {
+      if(state.currentVoteAudio) state.currentVoteAudio.pause();
+      btn.textContent = '🔄 Revoir';
+      btn.disabled    = false;
+      btn.onclick     = doPlay;
+    };
   }
 
-  // Attend que la vidéo soit prête
-  if(cvVideo.readyState >= 3){ // HAVE_FUTURE_DATA
-    startPlayback();
+  if(cvVideo.readyState >= 3){
+    doPlay();
   } else {
-    cvVideo.addEventListener('canplay', startPlayback, {once: true});
-    // Timeout de secours : lance quand même après 3s
-    setTimeout(() => {
-      if(cvVideo.paused) startPlayback();
-    }, 3000);
+    cvVideo.addEventListener('canplay', doPlay, {once: true});
+    setTimeout(() => { if(cvVideo.paused) doPlay(); }, 3000);
   }
 }
 
