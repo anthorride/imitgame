@@ -433,10 +433,23 @@ function triggerPop(el){el.style.animation='none';void el.offsetWidth;el.style.a
 // ─────────────────────────────────────────────────────
 // 16. LECTURE RÉSULTAT SOLO
 // ─────────────────────────────────────────────────────
+// Audio courant pour éviter les doublons
+let currentResultAudio = null;
+
 function playResult(){
-  if(!state.audioURL)return;
-  const v=document.getElementById('main-video'),a=new Audio(state.audioURL);
-  v.muted=true;v.currentTime=0;v.play();a.play();v.onended=()=>a.pause();
+  if(!state.audioURL) return;
+  // Arrête l'audio précédent si en cours
+  if(currentResultAudio){
+    currentResultAudio.pause();
+    currentResultAudio.currentTime = 0;
+    currentResultAudio = null;
+  }
+  const v = document.getElementById('main-video');
+  const a = new Audio(state.audioURL);
+  currentResultAudio = a;
+  v.muted = true; v.currentTime = 0;
+  v.play(); a.play();
+  v.onended = () => { a.pause(); currentResultAudio = null; };
 }
 function playResultAgain(){showScreen('screen-game');setTimeout(()=>playResult(),200);}
 function downloadAudio(){
@@ -812,11 +825,24 @@ async function checkAndProgress(salon, players){
   // ── Vote collectif ──
   if(salon.status === 'voting'){
     if(!document.getElementById('screen-collective-vote').classList.contains('active')){
+      // Charge l'écran de vote
       loadCollectiveVoteScreen(salon);
     } else {
-      // Vérifie si l'index de vote a changé
-      if(salon.current_vote_index !== state.voteQueueIndex){
-        state.voteQueueIndex = salon.current_vote_index;
+      // Déjà sur l'écran de vote
+      const newVoteIndex = salon.current_vote_index || 0;
+
+      // L'hôte a lancé la lecture (votes_this_round correspond à l'index courant)
+      const hostLaunched = (salon.votes_this_round === newVoteIndex + 1);
+      const btnDisabled  = document.getElementById('btn-cvote-launch')?.disabled;
+
+      if(hostLaunched && !btnDisabled && !state.isHost){
+        // Le guest lance aussi la lecture
+        launchCollectivePlayback();
+      }
+
+      // L'hôte a passé à la prestation suivante
+      if(newVoteIndex !== state.voteQueueIndex){
+        state.voteQueueIndex   = newVoteIndex;
         state.hasVotedThisPerf = false;
         showCollectiveVote();
       }
@@ -1002,28 +1028,41 @@ function showCollectiveVote(){
 function launchCollectivePlayback(){
   const cvVideo = document.getElementById('cvote-video');
   const cvAudio = document.getElementById('cvote-audio');
-  cvVideo.muted=true; cvVideo.currentTime=0; cvAudio.currentTime=0;
-  cvVideo.play(); cvAudio.play();
 
-  document.getElementById('btn-cvote-launch').disabled=true;
-  document.getElementById('btn-cvote-launch').textContent='▶ En cours...';
+  // S'assure que la vidéo est chargée
+  cvVideo.muted = true;
+  cvVideo.currentTime = 0;
+  if(cvAudio.src) cvAudio.currentTime = 0;
+
+  // Lance vidéo + audio ensemble
+  cvVideo.play().catch(e => console.warn('video play:', e));
+  if(cvAudio.src) cvAudio.play().catch(e => console.warn('audio play:', e));
+
+  document.getElementById('btn-cvote-launch').disabled = true;
+  document.getElementById('btn-cvote-launch').textContent = '▶ En cours...';
   document.getElementById('cvote-guest-waiting').classList.add('hidden');
 
-  // Affiche les boutons de vote après 1 seconde
-  setTimeout(()=>{
-    document.getElementById('cvote-vote-section').classList.remove('hidden');
-    const isOwn = state.voteQueue[state.voteQueueIndex]?.player_id === state.playerId;
-    if(isOwn){
-      document.getElementById('cvote-votes-received').classList.remove('hidden');
-    }
-  }, 1000);
-
-  // Notifie les autres via Supabase qu'on lance (hôte met à jour un champ)
-  if(state.isHost){
-    db.from('salons').update({votes_this_round: Date.now()}).eq('id',state.salonId);
+  // Affiche les boutons de vote
+  const isOwn = state.voteQueue[state.voteQueueIndex]?.player_id === state.playerId;
+  document.getElementById('cvote-vote-section').classList.remove('hidden');
+  document.getElementById('cvote-own-msg').classList.toggle('hidden', !isOwn);
+  if(isOwn){
+    document.getElementById('cvote-votes-received').classList.remove('hidden');
+    document.querySelectorAll('.vote-btn').forEach(b=>{ b.style.opacity='0.3'; b.style.pointerEvents='none'; });
+  } else {
+    document.querySelectorAll('.vote-btn').forEach(b=>{ b.style.opacity='1'; b.style.pointerEvents='auto'; });
   }
 
-  cvVideo.onended=()=>cvAudio.pause();
+  // Notifie les autres clients via Supabase
+  if(state.isHost){
+    db.from('salons').update({
+      votes_this_round: state.voteQueueIndex + 1  // valeur > 0 = lecture lancée pour ce vote
+    }).eq('id', state.salonId);
+  }
+
+  cvVideo.onended = () => {
+    if(cvAudio.src) cvAudio.pause();
+  };
 }
 
 async function castCollectiveVote(points){
