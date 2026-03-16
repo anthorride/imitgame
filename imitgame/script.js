@@ -1003,13 +1003,30 @@ function showCollectiveVote(){
     <span class="cvote-player-avatar">${player?.avatar||'🎭'}</span>
     <span class="cvote-player-name">${escapeHtml(player?.pseudo||'?')}</span>`;
 
-  // Charge vidéo + audio
+  // Charge vidéo + audio — force reload complet
   const videoId = state.videoIds[state.currentRound];
   const video   = VIDEOS.find(v=>v.id===videoId);
   const cvVideo = document.getElementById('cvote-video');
   const cvAudio = document.getElementById('cvote-audio');
-  if(video){ cvVideo.src=video.url; cvVideo.load(); }
-  if(perf.audio_url){ cvAudio.src=perf.audio_url; }
+
+  // Reset vidéo
+  cvVideo.pause();
+  cvVideo.removeAttribute('src');
+  cvVideo.load();
+  if(video){
+    cvVideo.src = video.url;
+    cvVideo.muted = true;
+    cvVideo.load();
+  }
+
+  // Reset audio
+  cvAudio.pause();
+  cvAudio.removeAttribute('src');
+  cvAudio.load();
+  if(perf.audio_url){
+    cvAudio.src = perf.audio_url;
+    cvAudio.load();
+  }
 
   // Reset UI
   document.getElementById('cvote-vote-section').classList.add('hidden');
@@ -1028,41 +1045,62 @@ function showCollectiveVote(){
 function launchCollectivePlayback(){
   const cvVideo = document.getElementById('cvote-video');
   const cvAudio = document.getElementById('cvote-audio');
-
-  // S'assure que la vidéo est chargée
-  cvVideo.muted = true;
-  cvVideo.currentTime = 0;
-  if(cvAudio.src) cvAudio.currentTime = 0;
-
-  // Lance vidéo + audio ensemble
-  cvVideo.play().catch(e => console.warn('video play:', e));
-  if(cvAudio.src) cvAudio.play().catch(e => console.warn('audio play:', e));
+  const perf    = state.voteQueue[state.voteQueueIndex];
+  const isOwn   = perf?.player_id === state.playerId;
 
   document.getElementById('btn-cvote-launch').disabled = true;
-  document.getElementById('btn-cvote-launch').textContent = '▶ En cours...';
+  document.getElementById('btn-cvote-launch').textContent = '⏳ Chargement...';
   document.getElementById('cvote-guest-waiting').classList.add('hidden');
 
-  // Affiche les boutons de vote
-  const isOwn = state.voteQueue[state.voteQueueIndex]?.player_id === state.playerId;
-  document.getElementById('cvote-vote-section').classList.remove('hidden');
-  document.getElementById('cvote-own-msg').classList.toggle('hidden', !isOwn);
-  if(isOwn){
-    document.getElementById('cvote-votes-received').classList.remove('hidden');
-    document.querySelectorAll('.vote-btn').forEach(b=>{ b.style.opacity='0.3'; b.style.pointerEvents='none'; });
-  } else {
-    document.querySelectorAll('.vote-btn').forEach(b=>{ b.style.opacity='1'; b.style.pointerEvents='auto'; });
-  }
-
-  // Notifie les autres clients via Supabase
+  // Notifie les autres clients que la lecture est lancée
   if(state.isHost){
     db.from('salons').update({
-      votes_this_round: state.voteQueueIndex + 1  // valeur > 0 = lecture lancée pour ce vote
+      votes_this_round: state.voteQueueIndex + 1
     }).eq('id', state.salonId);
   }
 
-  cvVideo.onended = () => {
-    if(cvAudio.src) cvAudio.pause();
-  };
+  // Recharge proprement vidéo et audio
+  cvVideo.pause();
+  cvVideo.muted = true;
+  cvVideo.currentTime = 0;
+
+  const hasAudio = perf?.audio_url && perf.audio_url.length > 0;
+
+  function startPlayback(){
+    document.getElementById('btn-cvote-launch').textContent = '▶ En cours...';
+
+    // Lance vidéo
+    cvVideo.play().catch(e => console.warn('video:', e));
+
+    // Lance audio si disponible
+    if(hasAudio){
+      cvAudio.currentTime = 0;
+      cvAudio.play().catch(e => console.warn('audio:', e));
+    }
+
+    // Affiche les boutons de vote
+    document.getElementById('cvote-vote-section').classList.remove('hidden');
+    document.getElementById('cvote-own-msg').classList.toggle('hidden', !isOwn);
+    if(isOwn){
+      document.getElementById('cvote-votes-received').classList.remove('hidden');
+      document.querySelectorAll('.vote-btn').forEach(b=>{ b.style.opacity='0.3'; b.style.pointerEvents='none'; });
+    } else {
+      document.querySelectorAll('.vote-btn').forEach(b=>{ b.style.opacity='1'; b.style.pointerEvents='auto'; });
+    }
+
+    cvVideo.onended = () => { if(hasAudio) cvAudio.pause(); };
+  }
+
+  // Attend que la vidéo soit prête
+  if(cvVideo.readyState >= 3){ // HAVE_FUTURE_DATA
+    startPlayback();
+  } else {
+    cvVideo.addEventListener('canplay', startPlayback, {once: true});
+    // Timeout de secours : lance quand même après 3s
+    setTimeout(() => {
+      if(cvVideo.paused) startPlayback();
+    }, 3000);
+  }
 }
 
 async function castCollectiveVote(points){
