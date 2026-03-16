@@ -358,21 +358,18 @@
         </div>
       </div>
 
-      <!-- Résultat vote -->
+      <!-- Résultat vote - passage auto après 1.5s -->
       <div id="cvote-result-section" class="hidden">
         <div class="cvote-result-box">
           <div class="cvote-result-emoji" id="cvote-result-emoji">🏆</div>
           <div class="cvote-result-pts" id="cvote-result-pts">+30 pts</div>
-        </div>
-        <!-- Bouton suivant : hôte uniquement -->
-        <div id="cvote-next-ctrl" class="hidden">
-          <button class="btn btn-primary" onclick="nextCollectiveVote()">Prestation suivante ➡️</button>
-        </div>
-        <div id="cvote-next-waiting" class="hidden">
-          <div class="waiting-spinner" style="width:24px;height:24px;margin:8px auto"></div>
-          <p style="color:var(--text-muted);font-size:13px">L'hôte passe à la suite...</p>
+          <p style="color:var(--text-muted);font-size:12px;margin-top:4px">Passage à la suite...</p>
         </div>
       </div>
+
+      <!-- Éléments cachés pour compatibilité JS -->
+      <div id="cvote-next-ctrl" class="hidden"></div>
+      <div id="cvote-next-waiting" class="hidden"></div>
 
     </div>
   </div>

@@ -775,112 +775,125 @@ async function loadCollectiveVoteScreen(salon){
     .select('*, players(pseudo,avatar,id)')
     .eq('salon_id',state.salonId)
     .eq('round_index',state.currentRound);
-  state.voteQueue=perfs||[];
-  state.voteQueueIndex=salon.current_vote_index||0;
-  state.hasVotedThisPerf=false;
+
+  // ✅ Filtre : on ne montre PAS sa propre performance
+  state.voteQueue = (perfs||[]).filter(p => p.player_id !== state.playerId);
+  state.voteQueueIndex = 0;
+  state.hasVotedThisPerf = false;
+
+  if(state.voteQueue.length === 0){
+    // Pas de performances à voter (solo dans le salon ?) → passe au round suivant
+    if(state.isHost) advanceRound();
+    return;
+  }
+
   showCollectiveVote();
 }
 
 function showCollectiveVote(){
   // Arrête l'audio précédent
-  if(state.cvoteAudio){state.cvoteAudio.pause();state.cvoteAudio=null;}
-  const cvVideo=document.getElementById('cvote-video');
+  if(state.cvoteAudio){ state.cvoteAudio.pause(); state.cvoteAudio=null; }
+  const cvVideo = document.getElementById('cvote-video');
   cvVideo.pause();
+  cvVideo.removeEventListener('timeupdate', updateCvoteProgress);
 
-  if(state.voteQueueIndex>=state.voteQueue.length){
-    if(state.isHost)advanceRound();
+  if(state.voteQueueIndex >= state.voteQueue.length){
+    // Tout le monde a été noté → round suivant automatique
+    advanceRound();
     return;
   }
 
-  const perf=state.voteQueue[state.voteQueueIndex];
-  const player=perf.players;
-  const isOwn=perf.player_id===state.playerId;
+  const perf   = state.voteQueue[state.voteQueueIndex];
+  const player = perf.players;
 
-  document.getElementById('cvote-avatar').textContent=state.avatar;
-  document.getElementById('cvote-pseudo').textContent=state.pseudo;
-  document.getElementById('cvote-score').textContent=state.score;
-  document.getElementById('cvote-current').textContent=state.voteQueueIndex+1;
-  document.getElementById('cvote-total').textContent=state.voteQueue.length;
-  document.getElementById('cvote-round').textContent=state.currentRound+1;
+  document.getElementById('cvote-avatar').textContent  = state.avatar;
+  document.getElementById('cvote-pseudo').textContent  = state.pseudo;
+  document.getElementById('cvote-score').textContent   = state.score;
+  document.getElementById('cvote-current').textContent = state.voteQueueIndex + 1;
+  document.getElementById('cvote-total').textContent   = state.voteQueue.length;
+  document.getElementById('cvote-round').textContent   = state.currentRound + 1;
 
-  document.getElementById('cvote-player-info').innerHTML=`
+  document.getElementById('cvote-player-info').innerHTML = `
     <span class="cvote-player-avatar">${player?.avatar||'🎭'}</span>
     <span class="cvote-player-name">${escapeHtml(player?.pseudo||'?')}</span>`;
 
   // Charge la vidéo originale
-  const videoId=state.videoIds[state.currentRound];
-  const video=VIDEOS.find(v=>v.id===videoId);
-  cvVideo.muted=true;
-  if(video){cvVideo.src=video.url;cvVideo.load();}
+  const videoId = state.videoIds[state.currentRound];
+  const video   = VIDEOS.find(v => v.id === videoId);
+  cvVideo.muted = true;
+  if(video){ cvVideo.src = video.url; cvVideo.load(); }
 
-  // Charge l'audio imitation dans un objet Audio séparé
-  // → pas de restriction CORS car on utilise new Audio() pas <audio>
-  if(perf.audio_url&&perf.audio_url.length>0){
-    state.cvoteAudio=new Audio(perf.audio_url);
-    state.cvoteAudio.preload='auto';
+  // Charge l'audio via new Audio() — plus fiable que <audio> pour CORS
+  if(perf.audio_url && perf.audio_url.length > 0){
+    state.cvoteAudio = new Audio(perf.audio_url);
+    state.cvoteAudio.crossOrigin = 'anonymous';
+    state.cvoteAudio.preload = 'auto';
   }
 
-  // Sync barre de progression
-  cvVideo.addEventListener('timeupdate',updateCvoteProgress);
-  cvVideo.addEventListener('ended',()=>{
-    document.getElementById('btn-cvote-playpause').textContent='▶';
-    if(state.cvoteAudio)state.cvoteAudio.pause();
-  });
+  // Sync barre de progression + arrêt audio quand vidéo termine
+  cvVideo.addEventListener('timeupdate', updateCvoteProgress);
+  cvVideo.onended = () => {
+    document.getElementById('btn-cvote-playpause').textContent = '▶';
+    if(state.cvoteAudio) state.cvoteAudio.pause();
+  };
 
-  // Reset contrôles
-  document.getElementById('btn-cvote-playpause').textContent='▶';
-  document.getElementById('cvote-progress-fill').style.width='0%';
-  document.getElementById('cvote-time').textContent='0:00 / 0:00';
+  // Reset contrôles lecteur
+  document.getElementById('btn-cvote-playpause').textContent = '▶';
+  document.getElementById('cvote-progress-fill').style.width = '0%';
+  document.getElementById('cvote-time').textContent = '0:00 / 0:00';
 
-  // Boutons de vote
+  // Reset vote — tous les boutons actifs (ce ne sont que des adversaires)
   document.getElementById('cvote-result-section').classList.add('hidden');
   document.getElementById('cvote-vote-section').classList.remove('hidden');
-  document.getElementById('cvote-own-msg').classList.toggle('hidden',!isOwn);
-  const voteButtons=document.getElementById('cvote-vote-buttons');
-  if(isOwn){
-    voteButtons.style.opacity='0.3';voteButtons.style.pointerEvents='none';
-  } else {
-    voteButtons.style.opacity='1';voteButtons.style.pointerEvents='auto';
-  }
+  document.getElementById('cvote-own-msg').classList.add('hidden');
+  const voteButtons = document.getElementById('cvote-vote-buttons');
+  voteButtons.style.opacity = '1';
+  voteButtons.style.pointerEvents = 'auto';
 
-  state.hasVotedThisPerf=false;
+  state.hasVotedThisPerf = false;
   showScreen('screen-collective-vote');
 }
 
 async function castCollectiveVote(points){
-  if(state.hasVotedThisPerf)return;
-  const perf=state.voteQueue[state.voteQueueIndex];
-  if(perf.player_id===state.playerId)return;
-  state.hasVotedThisPerf=true;
+  if(state.hasVotedThisPerf) return;
+  const perf = state.voteQueue[state.voteQueueIndex];
+  state.hasVotedThisPerf = true;
 
+  // Désactive les boutons visuellement
+  const voteButtons = document.getElementById('cvote-vote-buttons');
+  voteButtons.style.opacity = '0.4';
+  voteButtons.style.pointerEvents = 'none';
+
+  // Enregistre le vote
   await db.from('votes').insert({
-    salon_id:state.salonId,voter_id:state.playerId,
-    target_id:perf.player_id,points
+    salon_id: state.salonId, voter_id: state.playerId,
+    target_id: perf.player_id, points
   });
 
-  const target=state.players.find(p=>p.id===perf.player_id);
+  // Met à jour le score
+  const target = state.players.find(p => p.id === perf.player_id);
   if(target){
-    const newScore=(target.score||0)+points;
-    await db.from('players').update({score:newScore}).eq('id',perf.player_id);
-    target.score=newScore;
+    const newScore = (target.score||0) + points;
+    await db.from('players').update({score: newScore}).eq('id', perf.player_id);
+    target.score = newScore;
   }
 
-  const msgs={3:{emoji:'🏆',txt:'+30 pts'},1:{emoji:'😄',txt:'+10 pts'},0:{emoji:'😅',txt:'+0 pts'}};
-  document.getElementById('cvote-result-emoji').textContent=msgs[points].emoji;
-  document.getElementById('cvote-result-pts').textContent=msgs[points].txt;
+  // Affiche le résultat du vote
+  const msgs = {3:{emoji:'🏆',txt:'+30 pts'},1:{emoji:'😄',txt:'+10 pts'},0:{emoji:'😅',txt:'+0 pts'}};
+  document.getElementById('cvote-result-emoji').textContent = msgs[points].emoji;
+  document.getElementById('cvote-result-pts').textContent   = msgs[points].txt;
   document.getElementById('cvote-result-section').classList.remove('hidden');
+
+  // Cache les boutons de vote, garde le résultat visible 1.5s puis passe automatiquement
   document.getElementById('cvote-vote-section').classList.add('hidden');
+  document.getElementById('cvote-next-ctrl').classList.add('hidden');
+  document.getElementById('cvote-next-waiting').classList.add('hidden');
 
-  // Hôte : bouton suivant. Guest : attente
-  document.getElementById('cvote-next-ctrl').classList.toggle('hidden',!state.isHost);
-  document.getElementById('cvote-next-waiting').classList.toggle('hidden',state.isHost);
-}
-
-async function nextCollectiveVote(){
-  const nextIndex=state.voteQueueIndex+1;
-  await db.from('salons').update({current_vote_index:nextIndex}).eq('id',state.salonId);
-  state.voteQueueIndex=nextIndex;state.hasVotedThisPerf=false;
-  showCollectiveVote();
+  setTimeout(() => {
+    state.voteQueueIndex++;
+    state.hasVotedThisPerf = false;
+    showCollectiveVote();
+  }, 1500);
 }
 
 async function advanceRound(){
