@@ -114,7 +114,7 @@
     </div>
   </div>
 
-  <!-- ═══ ÉCRAN 4 : LOBBY MULTIJOUEUR ═══ -->
+  <!-- ═══ ÉCRAN 4 : LOBBY ═══ -->
   <div id="screen-lobby" class="screen">
     <div class="prep-header">
       <button class="btn-back" onclick="leaveLobby()">← Quitter</button>
@@ -137,7 +137,6 @@
           <div class="lobby-card-desc">Entre le code du salon de ton ami</div>
         </div>
       </div>
-
       <div id="join-form" class="hidden">
         <div class="join-box">
           <h3>Entre le code du salon</h3>
@@ -147,10 +146,8 @@
           <p class="join-error hidden" id="join-error">Salon introuvable ou déjà commencé.</p>
         </div>
       </div>
-
       <div id="create-form" class="hidden">
         <div class="create-settings">
-          <!-- Nombre de vidéos -->
           <div class="setting-box">
             <label class="setting-label">🎬 Nombre de vidéos</label>
             <div class="setting-row">
@@ -160,8 +157,6 @@
             </div>
             <p class="setting-hint">Les vidéos seront tirées au sort</p>
           </div>
-
-          <!-- Difficulté -->
           <div class="setting-box">
             <label class="setting-label">⭐ Difficulté</label>
             <div class="filter-row" style="justify-content:center">
@@ -171,10 +166,7 @@
               <button class="filter-btn" onclick="setLobbyDiff('hard',this)">⭐⭐⭐ Hard</button>
             </div>
           </div>
-
-          <button class="btn btn-random" onclick="createSalon()" style="width:100%">
-            🚀 Créer le salon !
-          </button>
+          <button class="btn btn-random" onclick="createSalon()" style="width:100%">🚀 Créer le salon !</button>
         </div>
       </div>
     </div>
@@ -227,7 +219,7 @@
   <!-- ═══ ÉCRAN 6 : JEU ═══ -->
   <div id="screen-game" class="screen">
     <div class="prep-header">
-      <button class="btn-back" onclick="leaveGame()">← Retour</button>
+      <button class="btn-back" onclick="leaveGame()">← Quitter</button>
       <div class="player-info">
         <span class="player-avatar" id="game-avatar">🎭</span>
         <span class="player-name" id="game-pseudo">Joueur</span>
@@ -236,7 +228,7 @@
     </div>
     <div id="random-badge" class="random-badge hidden">🎲 Vidéo aléatoire !</div>
     <div id="multi-badge" class="multi-badge hidden">
-      👥 Tour <span id="multi-round">1</span>/<span id="multi-total">?</span> — Vidéo <span id="multi-video-name"></span>
+      👥 Round <span id="multi-round">1</span>/<span id="multi-total">?</span> — <span id="multi-video-name"></span>
     </div>
     <div class="game-content">
       <div class="video-wrapper">
@@ -257,12 +249,12 @@
       <div class="game-controls">
         <div id="phase-preview" class="phase">
           <div class="phase-label">👀 Regarde et écoute bien !</div>
-          <p class="phase-hint">Mémorise les sons, les intonations, le rythme.<br/>Quand tu es prêt à imiter, clique ci-dessous 🎤</p>
+          <p class="phase-hint">Mémorise les sons, les intonations, le rythme 🎤</p>
           <button class="btn btn-record" onclick="readyToImitate()">🎤 Je suis prêt !</button>
         </div>
         <div id="phase-ready" class="phase">
           <div class="phase-label">🎬 Mode imitation</div>
-          <p class="phase-hint">Compte à rebours 3-2-1, puis imite avec ta voix ! 🎤<br/>La vidéo joue sans son — c'est toi la star !</p>
+          <p class="phase-hint">Compte à rebours 3-2-1, puis imite ! 🎤</p>
           <div class="phase-actions">
             <button class="btn btn-record" onclick="startRecording()">🎤 Lancer !</button>
             <button class="btn btn-secondary" onclick="showPhase('phase-preview')">👀 Revoir</button>
@@ -270,8 +262,7 @@
         </div>
         <div id="phase-recording" class="phase">
           <div class="recording-indicator">
-            <div class="rec-dot"></div>
-            <span>Enregistrement...</span>
+            <div class="rec-dot"></div><span>Enregistrement...</span>
           </div>
           <div class="audio-visualizer">
             <div class="bar"></div><div class="bar"></div><div class="bar"></div>
@@ -315,30 +306,46 @@
         <span class="score-badge">⭐ <span id="cvote-score">0</span> pts</span>
       </div>
     </div>
+
     <div class="collective-vote-content">
 
-      <div class="cvote-progress">
-        Prestation <span id="cvote-current">1</span> / <span id="cvote-total">?</span>
+      <!-- Progression -->
+      <div class="cvote-header">
+        <div class="cvote-progress">
+          Prestation <span id="cvote-current">1</span> / <span id="cvote-total">?</span>
+        </div>
+        <div class="cvote-round-info">Round <span id="cvote-round">1</span></div>
       </div>
 
+      <!-- Qui joue -->
       <div class="cvote-player-info" id="cvote-player-info"></div>
 
-      <div class="video-wrapper" style="max-width:380px">
-        <video id="cvote-video" playsinline muted></video>
+      <!-- Lecteur vidéo -->
+      <div class="cvote-player-wrap">
+        <div class="video-wrapper" style="max-width:340px">
+          <video id="cvote-video" playsinline muted></video>
+        </div>
+
+        <!-- Contrôles lecteur -->
+        <div class="video-controls" style="max-width:340px">
+          <div class="progress-bar-wrap">
+            <div id="cvote-progress-bg" class="progress-bar-bg" onclick="seekCvoteVideo(event)">
+              <div id="cvote-progress-fill" class="progress-bar-fill"></div>
+            </div>
+            <span id="cvote-time" class="time-display">0:00 / 0:00</span>
+          </div>
+          <div class="ctrl-buttons">
+            <button class="ctrl-btn" onclick="restartCvoteVideo()">⏮</button>
+            <button class="ctrl-btn ctrl-main" id="btn-cvote-playpause" onclick="toggleCvotePlayPause()">▶</button>
+          </div>
+        </div>
       </div>
 
-      <!-- Chaque joueur contrôle sa propre lecture -->
-      <button class="btn btn-play" id="btn-cvote-launch" onclick="launchCollectivePlayback()">
-        ▶ Voir la prestation
-      </button>
-
-      <div id="cvote-vote-section" class="hidden">
+      <!-- Boutons de vote -->
+      <div id="cvote-vote-section">
         <p class="cvote-vote-label">Vote pour cette performance !</p>
-        <p class="cvote-own-msg hidden" id="cvote-own-msg">C'est ta propre performance 😄</p>
-        <div class="cvote-votes-received hidden" id="cvote-votes-received">
-          <p style="color:var(--text-muted);font-size:13px">Les autres votent pour toi...</p>
-        </div>
-        <div class="vote-buttons" style="margin-top:16px">
+        <p class="cvote-own-msg hidden" id="cvote-own-msg">C'est ta propre performance — tu ne peux pas voter 😄</p>
+        <div class="vote-buttons" id="cvote-vote-buttons">
           <button class="vote-btn excellent" onclick="castCollectiveVote(3)">
             <span class="vote-icon">👍👍</span><span class="vote-label">Excellent !</span><span class="vote-pts">+30 pts</span>
           </button>
@@ -351,25 +358,21 @@
         </div>
       </div>
 
+      <!-- Résultat vote -->
       <div id="cvote-result-section" class="hidden">
         <div class="cvote-result-box">
           <div class="cvote-result-emoji" id="cvote-result-emoji">🏆</div>
           <div class="cvote-result-pts" id="cvote-result-pts">+30 pts</div>
         </div>
+        <!-- Bouton suivant : hôte uniquement -->
         <div id="cvote-next-ctrl" class="hidden">
-          <button class="btn btn-primary" onclick="nextCollectiveVote()">
-            Prestation suivante ➡️
-          </button>
+          <button class="btn btn-primary" onclick="nextCollectiveVote()">Prestation suivante ➡️</button>
         </div>
-        <div id="cvote-next-waiting" class="cvote-waiting-msg hidden">
-          <div class="waiting-spinner" style="width:24px;height:24px;margin:0 auto 6px"></div>
-          <p>L'hôte passe à la suite...</p>
+        <div id="cvote-next-waiting" class="hidden">
+          <div class="waiting-spinner" style="width:24px;height:24px;margin:8px auto"></div>
+          <p style="color:var(--text-muted);font-size:13px">L'hôte passe à la suite...</p>
         </div>
       </div>
-
-      <!-- Éléments cachés pour compatibilité -->
-      <div id="cvote-host-ctrl" class="hidden"></div>
-      <div id="cvote-guest-waiting" class="hidden"></div>
 
     </div>
   </div>
@@ -377,13 +380,14 @@
   <!-- ═══ ÉCRAN 8 : RÉSULTATS FINAUX ═══ -->
   <div id="screen-multi-result" class="screen">
     <div class="multi-result-content">
-      <div class="result-emoji" style="font-size:72px;animation:pop 0.5s cubic-bezier(0.175,0.885,0.32,1.275)">🏆</div>
+      <div style="font-size:72px;animation:pop 0.5s cubic-bezier(0.175,0.885,0.32,1.275)">🏆</div>
       <h2 class="result-title" style="color:var(--yellow);font-family:'Bangers',cursive;font-size:40px;letter-spacing:2px">
         Résultats finaux !
       </h2>
       <div id="multi-result-list" class="multi-result-list"></div>
       <div class="result-actions" style="margin-top:24px">
         <button class="btn btn-primary" onclick="playAgainMulti()">🔄 Rejouer</button>
+        <button class="btn btn-secondary" onclick="leaveSalon()">🚪 Quitter</button>
         <button class="btn btn-secondary" onclick="goHome()">🏠 Accueil</button>
       </div>
     </div>
@@ -426,7 +430,7 @@
     </div>
   </div>
 
-  <!-- MODAL MICRO -->
+  <!-- MODALS -->
   <div id="modal-micro" class="modal hidden">
     <div class="modal-box">
       <div class="modal-icon">🎤</div>
@@ -435,8 +439,6 @@
       <button class="btn btn-primary" onclick="closeModal('modal-micro')">Compris</button>
     </div>
   </div>
-
-  <!-- MODAL RESET -->
   <div id="modal-reset" class="modal hidden">
     <div class="modal-box">
       <div class="modal-icon">🗑</div>

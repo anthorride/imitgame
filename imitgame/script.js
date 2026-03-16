@@ -1,16 +1,13 @@
 /* ══════════════════════════════════════════════════════
-   ImitGame - script.js (tournoi + vote collectif synchronisé)
+   ImitGame - script.js
    ══════════════════════════════════════════════════════ */
 
-// ─────────────────────────────────────────────────────
-// 1. SUPABASE
-// ─────────────────────────────────────────────────────
 const SUPABASE_URL = 'https://uhsnnoclavjvdmpatkji.supabase.co';
 const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVoc25ub2NsYXZqdmRtcGF0a2ppIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM1ODk3MzUsImV4cCI6MjA4OTE2NTczNX0.0JD5GCzYuPj2AoYBWya-jvpg426aFs0XXYB9tj0K0eM';
 const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
 // ─────────────────────────────────────────────────────
-// 2. AVATARS
+// AVATARS
 // ─────────────────────────────────────────────────────
 const AVATARS = [
   '🎭','😂','🤣','😜','🤩','😎','🥳','🤪',
@@ -19,7 +16,7 @@ const AVATARS = [
 ];
 
 // ─────────────────────────────────────────────────────
-// 3. VIDÉOS
+// VIDÉOS
 // ─────────────────────────────────────────────────────
 const VIDEOS = [
   { id:"v1",  title:"Vidéo #1",  url:"https://res.cloudinary.com/dbkza0sdj/video/upload/v1773500445/video1_dhq5jq.mp4" },
@@ -50,190 +47,166 @@ const thumbCache    = {};
 const durationCache = {};
 
 // ─────────────────────────────────────────────────────
-// 4. ÉTAT
+// ÉTAT
 // ─────────────────────────────────────────────────────
 let state = {
-  // Profil
-  pseudo: "", avatar: "🎭", score: 0, selectedAvatar: '🎭',
-  // Solo
-  currentVideo: null, isRandom: false,
-  // Audio
-  mediaRecorder: null, audioChunks: [], audioBlob: null, audioURL: null,
-  isRecording: false, isPaused: false,
-  // Multijoueur
-  isMulti: false,
-  salonId: null, salonCode: null,
-  playerId: null, isHost: false,
-  players: [],
-  // Tournoi
-  videoIds: [],        // liste des IDs de vidéos du tournoi
-  videoCount: 5,       // nombre de vidéos choisi
-  lobbyDiff: 'tous',
-  currentRound: 0,     // index de la vidéo courante (0-based)
-  currentTurnIndex: 0, // index du joueur courant
-  // Vote collectif
-  voteQueue: [],       // performances à voter
-  voteQueueIndex: 0,
-  hasVotedThisPerf: false,
-  realtimeChannel: null,
+  pseudo:'', avatar:'🎭', score:0, selectedAvatar:'🎭',
+  currentVideo:null, isRandom:false,
+  mediaRecorder:null, audioChunks:[], audioBlob:null, audioURL:null,
+  isRecording:false, isPaused:false,
+  isMulti:false,
+  salonId:null, salonCode:null, playerId:null, isHost:false,
+  players:[],
+  videoIds:[], videoCount:5, lobbyDiff:'tous',
+  currentRound:0, currentTurnIndex:0,
+  voteQueue:[], voteQueueIndex:0, hasVotedThisPerf:false,
+  realtimeChannel:null, pollInterval:null,
+  // Audio vote collectif
+  cvoteAudio:null,
 };
 
-let currentFilter = 'tous';
-let randomDiff    = 'tous';
+let currentFilter='tous', randomDiff='tous';
+let joiningInProgress=false;
+let currentResultAudio=null;
 
 // ─────────────────────────────────────────────────────
-// 5. NAVIGATION
+// NAVIGATION
 // ─────────────────────────────────────────────────────
-function showScreen(id) {
-  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+function showScreen(id){
+  document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
   document.getElementById(id).classList.add('active');
-  window.scrollTo(0, 0);
+  window.scrollTo(0,0);
 }
 
-function goHome() {
-  stopEverything();
-  unsubscribeRealtime();
-  updateHomeProfile();
-  refreshLeaderboard();
+function goHome(){
+  stopEverything(); unsubscribeRealtime();
+  updateHomeProfile(); refreshLeaderboard();
   showScreen('screen-home');
 }
 
-function goPrep() {
-  stopEverything();
-  resetGamePhases();
-  document.getElementById('display-pseudo').textContent = state.pseudo;
-  document.getElementById('display-avatar').textContent = state.avatar;
-  document.getElementById('display-score').textContent  = state.score;
-  document.getElementById('random-count').textContent   = VIDEOS.length;
+function goPrep(){
+  stopEverything(); resetGamePhases();
+  document.getElementById('display-pseudo').textContent=state.pseudo;
+  document.getElementById('display-avatar').textContent=state.avatar;
+  document.getElementById('display-score').textContent=state.score;
+  document.getElementById('random-count').textContent=VIDEOS.length;
   buildVideoGrid();
   showScreen('screen-prep');
 }
 
-function goProfile() {
-  document.getElementById('pseudo-input').value = state.pseudo;
-  state.selectedAvatar = state.avatar;
-  document.getElementById('avatar-current').textContent = state.avatar;
-  buildAvatarGrid();
-  updateProfileStats();
+function goProfile(){
+  document.getElementById('pseudo-input').value=state.pseudo;
+  state.selectedAvatar=state.avatar;
+  document.getElementById('avatar-current').textContent=state.avatar;
+  buildAvatarGrid(); updateProfileStats();
   showScreen('screen-profile');
 }
 
-function goVote() { showScreen('screen-vote'); }
+function goVote(){ showScreen('screen-vote'); }
 
 // ─────────────────────────────────────────────────────
-// 6. PROFIL
+// PROFIL
 // ─────────────────────────────────────────────────────
-function buildAvatarGrid() {
-  const grid = document.getElementById('avatar-grid');
-  grid.innerHTML = '';
-  AVATARS.forEach(emoji => {
-    const btn = document.createElement('button');
-    btn.className = 'avatar-btn' + (emoji === state.selectedAvatar ? ' active' : '');
-    btn.textContent = emoji;
-    btn.onclick = () => {
-      state.selectedAvatar = emoji;
-      document.getElementById('avatar-current').textContent = emoji;
-      document.querySelectorAll('.avatar-btn').forEach(b => b.classList.remove('active'));
+function buildAvatarGrid(){
+  const grid=document.getElementById('avatar-grid'); grid.innerHTML='';
+  AVATARS.forEach(emoji=>{
+    const btn=document.createElement('button');
+    btn.className='avatar-btn'+(emoji===state.selectedAvatar?' active':'');
+    btn.textContent=emoji;
+    btn.onclick=()=>{
+      state.selectedAvatar=emoji;
+      document.getElementById('avatar-current').textContent=emoji;
+      document.querySelectorAll('.avatar-btn').forEach(b=>b.classList.remove('active'));
       btn.classList.add('active');
     };
     grid.appendChild(btn);
   });
 }
 
-function saveProfile() {
-  const input = document.getElementById('pseudo-input').value.trim();
-  if (!input) { document.getElementById('pseudo-input').style.borderColor = '#e74c3c'; return; }
-  state.pseudo = input; state.avatar = state.selectedAvatar;
+function saveProfile(){
+  const input=document.getElementById('pseudo-input').value.trim();
+  if(!input){document.getElementById('pseudo-input').style.borderColor='#e74c3c';return;}
+  state.pseudo=input; state.avatar=state.selectedAvatar;
   saveToStorage(); goHome();
 }
 
-function updateHomeProfile() {
-  document.getElementById('home-avatar').textContent        = state.avatar || '🎭';
-  document.getElementById('home-profile-name').textContent  = state.pseudo || 'Choisir un profil';
-  document.getElementById('home-profile-score').textContent = state.pseudo ? `⭐ ${state.score} pts` : '';
+function updateHomeProfile(){
+  document.getElementById('home-avatar').textContent=state.avatar||'🎭';
+  document.getElementById('home-profile-name').textContent=state.pseudo||'Choisir un profil';
+  document.getElementById('home-profile-score').textContent=state.pseudo?`⭐ ${state.score} pts`:'';
 }
 
-function updateProfileStats() {
-  const el   = document.getElementById('profile-stats');
-  const lb   = JSON.parse(localStorage.getItem('imitgame_lb') || '[]');
-  const rank = lb.findIndex(r => r.name === state.pseudo);
-  el.innerHTML = state.pseudo ? `
+function updateProfileStats(){
+  const el=document.getElementById('profile-stats');
+  const lb=JSON.parse(localStorage.getItem('imitgame_lb')||'[]');
+  const rank=lb.findIndex(r=>r.name===state.pseudo);
+  el.innerHTML=state.pseudo?`
     <div class="stat-row"><span>🎮 Score total</span><strong>${state.score} pts</strong></div>
-    ${rank >= 0 ? `<div class="stat-row"><span>🏆 Classement</span><strong>#${rank+1}</strong></div>` : ''}
-  ` : '';
+    ${rank>=0?`<div class="stat-row"><span>🏆 Classement</span><strong>#${rank+1}</strong></div>`:''}
+  `:'';
 }
 
-function startSolo() { if (!state.pseudo) goProfile(); else goPrep(); }
+function startSolo(){if(!state.pseudo)goProfile();else goPrep();}
 
 // ─────────────────────────────────────────────────────
-// 7. FILTRES SOLO
+// MODES SOLO
 // ─────────────────────────────────────────────────────
-function setMode(mode) {
-  document.getElementById('tab-choose').classList.toggle('active', mode === 'choose');
-  document.getElementById('tab-random').classList.toggle('active', mode === 'random');
-  document.getElementById('mode-choose').classList.toggle('hidden', mode !== 'choose');
-  document.getElementById('mode-random').classList.toggle('hidden', mode !== 'random');
+function setMode(mode){
+  document.getElementById('tab-choose').classList.toggle('active',mode==='choose');
+  document.getElementById('tab-random').classList.toggle('active',mode==='random');
+  document.getElementById('mode-choose').classList.toggle('hidden',mode!=='choose');
+  document.getElementById('mode-random').classList.toggle('hidden',mode!=='random');
 }
 
-function getDifficulty(s) {
-  if (!s || isNaN(s)) return 'moyen';
-  if (s <= 10) return 'facile';
-  if (s <= 20) return 'moyen';
-  return 'hard';
-}
-function getDiffLabel(d) { return d==='facile'?'⭐ Facile':d==='moyen'?'⭐⭐ Moyen':'⭐⭐⭐ Hard'; }
+function getDifficulty(s){if(!s||isNaN(s))return'moyen';if(s<=10)return'facile';if(s<=20)return'moyen';return'hard';}
+function getDiffLabel(d){return d==='facile'?'⭐ Facile':d==='moyen'?'⭐⭐ Moyen':'⭐⭐⭐ Hard';}
 
-function filterVideos(diff, btn) {
-  currentFilter = diff;
-  document.querySelectorAll('#mode-choose .filter-btn').forEach(b => b.classList.remove('active'));
-  if (btn) btn.classList.add('active');
+function filterVideos(diff,btn){
+  currentFilter=diff;
+  document.querySelectorAll('#mode-choose .filter-btn').forEach(b=>b.classList.remove('active'));
+  if(btn)btn.classList.add('active');
   buildVideoGrid();
 }
 
-function setRandomDiff(diff, btn) {
-  randomDiff = diff;
-  document.querySelectorAll('.random-filters .filter-btn').forEach(b => b.classList.remove('active'));
-  if (btn) btn.classList.add('active');
+function setRandomDiff(diff,btn){
+  randomDiff=diff;
+  document.querySelectorAll('.random-filters .filter-btn').forEach(b=>b.classList.remove('active'));
+  if(btn)btn.classList.add('active');
 }
 
 // ─────────────────────────────────────────────────────
-// 8. MINIATURES
+// MINIATURES
 // ─────────────────────────────────────────────────────
-function generateThumbnail(video) {
-  return new Promise(resolve => {
-    if (thumbCache[video.id]) { resolve(thumbCache[video.id]); return; }
-    const vid = document.createElement('video');
-    vid.crossOrigin = 'anonymous'; vid.muted = true; vid.preload = 'metadata'; vid.src = video.url;
-    vid.addEventListener('loadedmetadata', () => {
-      durationCache[video.id] = vid.duration;
-      vid.currentTime = Math.min(vid.duration * 0.1, 2);
-    });
-    vid.addEventListener('seeked', () => {
-      try {
-        const c = document.createElement('canvas'); c.width=200; c.height=356;
-        const ctx = c.getContext('2d');
-        const vr=vid.videoWidth/vid.videoHeight, cr=c.width/c.height;
+function generateThumbnail(video){
+  return new Promise(resolve=>{
+    if(thumbCache[video.id]){resolve(thumbCache[video.id]);return;}
+    const vid=document.createElement('video');
+    vid.crossOrigin='anonymous';vid.muted=true;vid.preload='metadata';vid.src=video.url;
+    vid.addEventListener('loadedmetadata',()=>{durationCache[video.id]=vid.duration;vid.currentTime=Math.min(vid.duration*0.1,2);});
+    vid.addEventListener('seeked',()=>{
+      try{
+        const c=document.createElement('canvas');c.width=200;c.height=356;
+        const ctx=c.getContext('2d');
+        const vr=vid.videoWidth/vid.videoHeight,cr=c.width/c.height;
         let sx=0,sy=0,sw=vid.videoWidth,sh=vid.videoHeight;
-        if(vr>cr){sw=vid.videoHeight*cr;sx=(vid.videoWidth-sw)/2;}
-        else{sh=vid.videoWidth/cr;sy=(vid.videoHeight-sh)/2;}
+        if(vr>cr){sw=vid.videoHeight*cr;sx=(vid.videoWidth-sw)/2;}else{sh=vid.videoWidth/cr;sy=(vid.videoHeight-sh)/2;}
         ctx.drawImage(vid,sx,sy,sw,sh,0,0,c.width,c.height);
-        const url=c.toDataURL('image/jpeg',0.8);
-        thumbCache[video.id]=url; resolve(url);
-      } catch(e){ resolve(null); }
+        const url=c.toDataURL('image/jpeg',0.8);thumbCache[video.id]=url;resolve(url);
+      }catch(e){resolve(null);}
     });
-    vid.addEventListener('error', ()=>resolve(null));
-    setTimeout(()=>resolve(null), 5000);
+    vid.addEventListener('error',()=>resolve(null));
+    setTimeout(()=>resolve(null),5000);
   });
 }
 
-function buildVideoGrid() {
-  const grid = document.getElementById('video-grid');
-  let pool = currentFilter==='tous' ? VIDEOS : VIDEOS.filter(v=>getDifficulty(durationCache[v.id])===currentFilter);
-  if (!pool.length) { grid.innerHTML='<p class="empty-lb" style="grid-column:1/-1;padding:20px">Aucune vidéo pour cette difficulté.</p>'; return; }
+function buildVideoGrid(){
+  const grid=document.getElementById('video-grid');
+  let pool=currentFilter==='tous'?VIDEOS:VIDEOS.filter(v=>getDifficulty(durationCache[v.id])===currentFilter);
+  if(!pool.length){grid.innerHTML='<p class="empty-lb" style="grid-column:1/-1;padding:20px">Aucune vidéo pour cette difficulté.</p>';return;}
   grid.innerHTML='';
-  pool.forEach(video => {
-    const card=document.createElement('div'); card.className='video-card';
-    const dur=durationCache[video.id], diff=getDifficulty(dur), durTxt=dur?formatTime(dur):'…';
+  pool.forEach(video=>{
+    const card=document.createElement('div');card.className='video-card';
+    const dur=durationCache[video.id],diff=getDifficulty(dur),durTxt=dur?formatTime(dur):'…';
     card.innerHTML=`
       <div class="video-thumb-wrap">
         <div class="video-thumb-loading" id="tl-${video.id}"><div class="thumb-spinner"></div></div>
@@ -246,81 +219,75 @@ function buildVideoGrid() {
         <div class="video-title">${video.title}</div>
         <div class="video-meta" id="tm-${video.id}">Durée : ${durTxt}</div>
       </div>`;
-    card.addEventListener('click', ()=>selectVideo(video, false));
+    card.addEventListener('click',()=>selectVideo(video,false));
     grid.appendChild(card);
-    generateThumbnail(video).then(dataURL => {
+    generateThumbnail(video).then(dataURL=>{
       document.getElementById(`tl-${video.id}`)?.remove();
-      const img=document.getElementById(`ti-${video.id}`), fb=document.getElementById(`tf-${video.id}`);
+      const img=document.getElementById(`ti-${video.id}`),fb=document.getElementById(`tf-${video.id}`);
       if(dataURL){img.src=dataURL;img.style.display='block';}else if(fb){fb.style.display='flex';}
-      const d=durationCache[video.id], d2=getDifficulty(d);
+      const d=durationCache[video.id],d2=getDifficulty(d);
       const el=document.getElementById(`td-${video.id}`);
       if(el){el.textContent=getDiffLabel(d2);el.className=`video-diff-badge diff-${d2}`;}
       const me=document.getElementById(`tm-${video.id}`);
-      if(me&&d) me.textContent=`Durée : ${formatTime(d)}`;
+      if(me&&d)me.textContent=`Durée : ${formatTime(d)}`;
     });
   });
 }
 
 // ─────────────────────────────────────────────────────
-// 9. SOLO ALÉATOIRE
+// ALÉATOIRE SOLO
 // ─────────────────────────────────────────────────────
-function launchRandom() {
-  let pool = randomDiff==='tous' ? VIDEOS : VIDEOS.filter(v=>getDifficulty(durationCache[v.id])===randomDiff);
-  if (!pool.length) pool=VIDEOS;
+function launchRandom(){
+  let pool=randomDiff==='tous'?VIDEOS:VIDEOS.filter(v=>getDifficulty(durationCache[v.id])===randomDiff);
+  if(!pool.length)pool=VIDEOS;
   const icon=document.getElementById('random-icon');
   const emojis=['🎲','🎭','😂','🔥','🎤','😜','🦁','⭐'];
-  let i=0; icon.classList.add('spinning');
+  let i=0;icon.classList.add('spinning');
   const spin=setInterval(()=>{icon.textContent=emojis[i++%emojis.length];},100);
   setTimeout(()=>{clearInterval(spin);icon.classList.remove('spinning');selectVideo(pool[Math.floor(Math.random()*pool.length)],true);},800);
 }
 function launchRandomFromResult(){goPrep();setTimeout(()=>{setMode('random');launchRandom();},150);}
 
-function selectVideo(video, isRandom) {
-  state.currentVideo=video; state.isRandom=isRandom; state.isMulti=false;
-  loadGameScreen();
-}
+function selectVideo(video,isRandom){state.currentVideo=video;state.isRandom=isRandom;state.isMulti=false;loadGameScreen();}
 
 // ─────────────────────────────────────────────────────
-// 10. ÉCRAN DE JEU
+// ÉCRAN DE JEU
 // ─────────────────────────────────────────────────────
-function loadGameScreen() {
-  const v = document.getElementById('main-video');
-  document.getElementById('game-avatar').textContent = state.avatar;
-  document.getElementById('game-pseudo').textContent = state.pseudo;
-  document.getElementById('game-score').textContent  = state.score;
-  document.getElementById('random-badge').classList.toggle('hidden', !state.isRandom || state.isMulti);
-  document.getElementById('multi-badge').classList.toggle('hidden', !state.isMulti);
-
-  if (state.isMulti) {
-    document.getElementById('multi-round').textContent     = state.currentRound + 1;
-    document.getElementById('multi-total').textContent     = state.videoIds.length;
-    document.getElementById('multi-video-name').textContent = state.currentVideo.title;
-    document.getElementById('btn-submit').textContent = 'Soumettre 👥';
-    document.getElementById('btn-submit').onclick = submitPerformance;
+function loadGameScreen(){
+  const v=document.getElementById('main-video');
+  document.getElementById('game-avatar').textContent=state.avatar;
+  document.getElementById('game-pseudo').textContent=state.pseudo;
+  document.getElementById('game-score').textContent=state.score;
+  document.getElementById('random-badge').classList.toggle('hidden',!state.isRandom||state.isMulti);
+  document.getElementById('multi-badge').classList.toggle('hidden',!state.isMulti);
+  if(state.isMulti){
+    document.getElementById('multi-round').textContent=state.currentRound+1;
+    document.getElementById('multi-total').textContent=state.videoIds.length;
+    document.getElementById('multi-video-name').textContent=state.currentVideo.title;
+    document.getElementById('btn-submit').textContent='Soumettre 👥';
+    document.getElementById('btn-submit').onclick=submitPerformance;
   } else {
-    document.getElementById('btn-submit').textContent = 'Voter 👍';
-    document.getElementById('btn-submit').onclick = goVote;
+    document.getElementById('btn-submit').textContent='Voter 👍';
+    document.getElementById('btn-submit').onclick=goVote;
   }
-
-  v.src=state.currentVideo.url; v.muted=false; v.volume=1.0; v.load();
-  updateProgressBar(); resetGamePhases(); showPhase('phase-preview');
+  v.src=state.currentVideo.url;v.muted=false;v.volume=1.0;v.load();
+  updateProgressBar();resetGamePhases();showPhase('phase-preview');
   showScreen('screen-game');
-  v.addEventListener('timeupdate', onTimeUpdate);
-  v.addEventListener('ended', onVideoEnded);
+  v.addEventListener('timeupdate',onTimeUpdate);
+  v.addEventListener('ended',onVideoEnded);
 }
 
 // ─────────────────────────────────────────────────────
-// 11. PHASES
+// PHASES
 // ─────────────────────────────────────────────────────
 function resetGamePhases(){document.querySelectorAll('.phase').forEach(p=>p.classList.remove('active'));}
 function showPhase(id){
-  resetGamePhases();
-  document.getElementById(id).classList.add('active');
+  resetGamePhases();document.getElementById(id).classList.add('active');
   if(id==='phase-preview'){const v=document.getElementById('main-video');v.muted=false;v.volume=1.0;}
 }
 
 // ─────────────────────────────────────────────────────
-// 12. CONTRÔLES VIDÉO
+// CONTRÔLES VIDÉO PRINCIPALE
 // ─────────────────────────────────────────────────────
 function togglePlayPause(){
   const v=document.getElementById('main-video'),btn=document.getElementById('btn-playpause');
@@ -339,7 +306,48 @@ function updateTimeDisplay(){const v=document.getElementById('main-video'),el=do
 function formatTime(s){if(!s||isNaN(s))return'0:00';return`${Math.floor(s/60)}:${Math.floor(s%60).toString().padStart(2,'0')}`;}
 
 // ─────────────────────────────────────────────────────
-// 13. IMITATION
+// CONTRÔLES VIDÉO VOTE COLLECTIF
+// ─────────────────────────────────────────────────────
+function toggleCvotePlayPause(){
+  const v=document.getElementById('cvote-video'),btn=document.getElementById('btn-cvote-playpause');
+  if(v.paused){
+    v.play().catch(e=>console.warn(e));
+    if(state.cvoteAudio){state.cvoteAudio.play().catch(e=>console.warn(e));}
+    btn.textContent='⏸';
+  } else {
+    v.pause();
+    if(state.cvoteAudio)state.cvoteAudio.pause();
+    btn.textContent='▶';
+  }
+}
+
+function restartCvoteVideo(){
+  const v=document.getElementById('cvote-video');
+  v.currentTime=0;
+  if(state.cvoteAudio)state.cvoteAudio.currentTime=0;
+  v.play().catch(e=>console.warn(e));
+  if(state.cvoteAudio)state.cvoteAudio.play().catch(e=>console.warn(e));
+  document.getElementById('btn-cvote-playpause').textContent='⏸';
+}
+
+function seekCvoteVideo(e){
+  const v=document.getElementById('cvote-video'),bar=document.getElementById('cvote-progress-bg');
+  const ratio=Math.max(0,Math.min(1,(e.clientX-bar.getBoundingClientRect().left)/bar.offsetWidth));
+  if(v.duration){
+    v.currentTime=ratio*v.duration;
+    if(state.cvoteAudio)state.cvoteAudio.currentTime=ratio*v.duration;
+  }
+}
+
+function updateCvoteProgress(){
+  const v=document.getElementById('cvote-video');
+  const f=document.getElementById('cvote-progress-fill'),t=document.getElementById('cvote-time');
+  if(f&&v.duration)f.style.width=(v.currentTime/v.duration*100)+'%';
+  if(t)t.textContent=`${formatTime(v.currentTime)} / ${formatTime(v.duration||0)}`;
+}
+
+// ─────────────────────────────────────────────────────
+// IMITATION
 // ─────────────────────────────────────────────────────
 function readyToImitate(){
   const v=document.getElementById('main-video');
@@ -349,7 +357,7 @@ function readyToImitate(){
 }
 
 // ─────────────────────────────────────────────────────
-// 14. ENREGISTREMENT
+// ENREGISTREMENT
 // ─────────────────────────────────────────────────────
 async function startRecording(){
   let stream;
@@ -410,7 +418,7 @@ function retryFromPlayback(){
 }
 
 // ─────────────────────────────────────────────────────
-// 15. COMPTE À REBOURS
+// COMPTE À REBOURS
 // ─────────────────────────────────────────────────────
 function countdown(seconds){
   return new Promise(resolve=>{
@@ -431,25 +439,16 @@ function countdown(seconds){
 function triggerPop(el){el.style.animation='none';void el.offsetWidth;el.style.animation='countpop 0.45s cubic-bezier(0.175,0.885,0.32,1.275) both';}
 
 // ─────────────────────────────────────────────────────
-// 16. LECTURE RÉSULTAT SOLO
+// LECTURE RÉSULTAT SOLO (sans doublons)
 // ─────────────────────────────────────────────────────
-// Audio courant pour éviter les doublons
-let currentResultAudio = null;
-
 function playResult(){
-  if(!state.audioURL) return;
-  // Arrête l'audio précédent si en cours
-  if(currentResultAudio){
-    currentResultAudio.pause();
-    currentResultAudio.currentTime = 0;
-    currentResultAudio = null;
-  }
-  const v = document.getElementById('main-video');
-  const a = new Audio(state.audioURL);
-  currentResultAudio = a;
-  v.muted = true; v.currentTime = 0;
-  v.play(); a.play();
-  v.onended = () => { a.pause(); currentResultAudio = null; };
+  if(!state.audioURL)return;
+  if(currentResultAudio){currentResultAudio.pause();currentResultAudio=null;}
+  const v=document.getElementById('main-video');
+  const a=new Audio(state.audioURL);
+  currentResultAudio=a;
+  v.muted=true;v.currentTime=0;v.play();a.play();
+  v.onended=()=>{a.pause();currentResultAudio=null;};
 }
 function playResultAgain(){showScreen('screen-game');setTimeout(()=>playResult(),200);}
 function downloadAudio(){
@@ -461,7 +460,7 @@ function downloadAudio(){
 }
 
 // ─────────────────────────────────────────────────────
-// 17. VOTE SOLO
+// VOTE SOLO
 // ─────────────────────────────────────────────────────
 const VOTE_POINTS={3:30,1:10,0:0};
 const VOTE_MESSAGES={3:{emoji:"🏆",title:"EXCELLENT !",pts:"+30 points !"},1:{emoji:"😄",title:"Pas mal !",pts:"+10 points !"},0:{emoji:"😅",title:"On fait mieux...",pts:"+0 points !"}};
@@ -476,7 +475,7 @@ function castVote(level){
 }
 
 // ─────────────────────────────────────────────────────
-// 18. LOBBY — CRÉATION SALON
+// LOBBY
 // ─────────────────────────────────────────────────────
 function goToLobby(){
   if(!state.pseudo){goProfile();return;}
@@ -486,156 +485,98 @@ function goToLobby(){
   document.getElementById('create-form').classList.add('hidden');
   showScreen('screen-lobby');
 }
-
 function showJoinSalon(){
   document.getElementById('join-form').classList.remove('hidden');
   document.getElementById('create-form').classList.add('hidden');
   document.getElementById('join-code-input').value='';
   document.getElementById('join-error').classList.add('hidden');
 }
-
 function showCreateSalon(){
   document.getElementById('create-form').classList.remove('hidden');
   document.getElementById('join-form').classList.add('hidden');
 }
-
-function leaveLobby(){ unsubscribeRealtime(); goHome(); }
-
-// Compteur nombre de vidéos
-function changeVideoCount(delta){
-  state.videoCount = Math.max(1, Math.min(20, state.videoCount + delta));
-  document.getElementById('video-count-display').textContent = state.videoCount;
-}
-
-function setLobbyDiff(diff, btn){
-  state.lobbyDiff = diff;
+function leaveLobby(){unsubscribeRealtime();goHome();}
+function changeVideoCount(delta){state.videoCount=Math.max(1,Math.min(20,state.videoCount+delta));document.getElementById('video-count-display').textContent=state.videoCount;}
+function setLobbyDiff(diff,btn){
+  state.lobbyDiff=diff;
   document.querySelectorAll('#create-form .filter-btn').forEach(b=>b.classList.remove('active'));
-  if(btn) btn.classList.add('active');
+  if(btn)btn.classList.add('active');
 }
 
+// ─────────────────────────────────────────────────────
+// CRÉER UN SALON
+// ─────────────────────────────────────────────────────
 async function createSalon(){
   showToast('Création du salon...');
-
-  // Tire au sort les vidéos selon difficulté
-  let pool = state.lobbyDiff==='tous' ? VIDEOS : VIDEOS.filter(v=>getDifficulty(durationCache[v.id])===state.lobbyDiff);
-  if(!pool.length) pool=VIDEOS;
-
-  // Mélange et prend le nombre demandé
-  const shuffled = [...pool].sort(()=>Math.random()-0.5);
-  const picked   = shuffled.slice(0, Math.min(state.videoCount, shuffled.length));
-  const videoIds = picked.map(v=>v.id);
-
-  const code = generateCode();
-  const { data: salon, error } = await db.from('salons').insert({
-    code,
-    host_name: state.pseudo,
-    host_avatar: state.avatar,
-    video_id: videoIds[0],
-    video_ids: JSON.stringify(videoIds),
-    video_count: videoIds.length,
-    difficulty: state.lobbyDiff,
-    status: 'waiting',
-    current_round: 0,
-    current_vote_index: 0,
-    votes_this_round: 0,
+  let pool=state.lobbyDiff==='tous'?VIDEOS:VIDEOS.filter(v=>getDifficulty(durationCache[v.id])===state.lobbyDiff);
+  if(!pool.length)pool=VIDEOS;
+  const shuffled=[...pool].sort(()=>Math.random()-0.5);
+  const picked=shuffled.slice(0,Math.min(state.videoCount,shuffled.length));
+  const videoIds=picked.map(v=>v.id);
+  const code=generateCode();
+  const{data:salon,error}=await db.from('salons').insert({
+    code, host_name:state.pseudo, host_avatar:state.avatar,
+    video_id:videoIds[0], video_ids:JSON.stringify(videoIds),
+    video_count:videoIds.length, difficulty:state.lobbyDiff,
+    status:'waiting', current_round:0, current_vote_index:0, votes_this_round:0,
   }).select().single();
-
-  if(error){ showToast('Erreur lors de la création 😕'); console.error(error); return; }
-
-  const { data: player, error: pe } = await db.from('players').insert({
-    salon_id: salon.id, pseudo: state.pseudo, avatar: state.avatar, is_host: true, score: 0
-  }).select().single();
-  if(pe){ showToast('Erreur joueur 😕'); return; }
-
-  state.salonId   = salon.id;
-  state.salonCode = code;
-  state.playerId  = player.id;
-  state.isHost    = true;
-  state.isMulti   = true;
-  state.videoIds  = videoIds;
-  state.currentRound = 0;
-
-  enterWaitingRoom(salon);
-}
-
-function generateCode(){
-  return Math.random().toString(36).substring(2,8).toUpperCase();
-}
-
-// ─────────────────────────────────────────────────────
-// 19. REJOINDRE UN SALON
-// ─────────────────────────────────────────────────────
-let joiningInProgress = false;
-
-async function joinSalon(){
-  if(joiningInProgress) return; // empêche le double appel
-  joiningInProgress = true;
-
-  const code=document.getElementById('join-code-input').value.trim().toUpperCase();
-  if(code.length<4){ showJoinError(); joiningInProgress=false; return; }
-
-  // Vérifie si ce joueur est déjà dans ce salon
-  const{data:salon,error}=await db.from('salons').select('*').eq('code',code).eq('status','waiting').single();
-  if(error||!salon){ showJoinError(); joiningInProgress=false; return; }
-
-  // Vérifie si le joueur existe déjà
-  const{data:existing}=await db.from('players').select('*')
-    .eq('salon_id',salon.id).eq('pseudo',state.pseudo);
-  if(existing && existing.length>0){
-    // Joueur déjà présent — réutilise l'entrée existante
-    const player = existing[0];
-    state.salonId   = salon.id;
-    state.salonCode = salon.code;
-    state.playerId  = player.id;
-    state.isHost    = false;
-    state.isMulti   = true;
-    state.videoIds  = JSON.parse(salon.video_ids||'[]');
-    state.currentRound = salon.current_round||0;
-    joiningInProgress = false;
-    enterWaitingRoom(salon);
-    return;
-  }
-
+  if(error){showToast('Erreur lors de la création 😕');console.error(error);return;}
   const{data:player,error:pe}=await db.from('players').insert({
-    salon_id:salon.id, pseudo:state.pseudo, avatar:state.avatar, is_host:false, score:0
+    salon_id:salon.id, pseudo:state.pseudo, avatar:state.avatar, is_host:true, score:0
   }).select().single();
-  if(pe){ showJoinError(); joiningInProgress=false; return; }
-
-  state.salonId   = salon.id;
-  state.salonCode = salon.code;
-  state.playerId  = player.id;
-  state.isHost    = false;
-  state.isMulti   = true;
-  state.videoIds  = JSON.parse(salon.video_ids||'[]');
-  state.currentRound = salon.current_round||0;
-  joiningInProgress = false;
+  if(pe){showToast('Erreur joueur 😕');return;}
+  state.salonId=salon.id;state.salonCode=code;state.playerId=player.id;
+  state.isHost=true;state.isMulti=true;state.videoIds=videoIds;state.currentRound=0;
   enterWaitingRoom(salon);
 }
-
-function showJoinError(){ document.getElementById('join-error').classList.remove('hidden'); }
+function generateCode(){return Math.random().toString(36).substring(2,8).toUpperCase();}
 
 // ─────────────────────────────────────────────────────
-// 20. SALLE D'ATTENTE
+// REJOINDRE UN SALON
+// ─────────────────────────────────────────────────────
+async function joinSalon(){
+  if(joiningInProgress)return;
+  joiningInProgress=true;
+  const code=document.getElementById('join-code-input').value.trim().toUpperCase();
+  if(code.length<4){showJoinError();joiningInProgress=false;return;}
+  const{data:salon,error}=await db.from('salons').select('*').eq('code',code).eq('status','waiting').single();
+  if(error||!salon){showJoinError();joiningInProgress=false;return;}
+  const{data:existing}=await db.from('players').select('*').eq('salon_id',salon.id).eq('pseudo',state.pseudo);
+  if(existing&&existing.length>0){
+    const player=existing[0];
+    state.salonId=salon.id;state.salonCode=salon.code;state.playerId=player.id;
+    state.isHost=false;state.isMulti=true;
+    state.videoIds=JSON.parse(salon.video_ids||'[]');state.currentRound=salon.current_round||0;
+    joiningInProgress=false;enterWaitingRoom(salon);return;
+  }
+  const{data:player,error:pe}=await db.from('players').insert({
+    salon_id:salon.id,pseudo:state.pseudo,avatar:state.avatar,is_host:false,score:0
+  }).select().single();
+  if(pe){showJoinError();joiningInProgress=false;return;}
+  state.salonId=salon.id;state.salonCode=salon.code;state.playerId=player.id;
+  state.isHost=false;state.isMulti=true;
+  state.videoIds=JSON.parse(salon.video_ids||'[]');state.currentRound=salon.current_round||0;
+  joiningInProgress=false;
+  enterWaitingRoom(salon);
+}
+function showJoinError(){document.getElementById('join-error').classList.remove('hidden');}
+
+// ─────────────────────────────────────────────────────
+// SALLE D'ATTENTE
 // ─────────────────────────────────────────────────────
 async function enterWaitingRoom(salon){
-  document.getElementById('waiting-avatar').textContent = state.avatar;
-  document.getElementById('waiting-pseudo').textContent = state.pseudo;
-  document.getElementById('salon-code-display').textContent = state.salonCode;
-  document.getElementById('waiting-video-count').textContent = state.videoIds.length;
-  document.getElementById('waiting-diff').textContent = salon.difficulty==='tous'?'Tous':getDiffLabel(salon.difficulty);
-  document.getElementById('host-controls').classList.toggle('hidden', !state.isHost);
-  document.getElementById('guest-controls').classList.toggle('hidden', state.isHost);
+  document.getElementById('waiting-avatar').textContent=state.avatar;
+  document.getElementById('waiting-pseudo').textContent=state.pseudo;
+  document.getElementById('salon-code-display').textContent=state.salonCode;
+  document.getElementById('waiting-video-count').textContent=state.videoIds.length;
+  document.getElementById('waiting-diff').textContent=salon.difficulty==='tous'?'Tous':getDiffLabel(salon.difficulty);
+  document.getElementById('host-controls').classList.toggle('hidden',!state.isHost);
+  document.getElementById('guest-controls').classList.toggle('hidden',state.isHost);
   showScreen('screen-waiting');
-
-  // S'abonne AVANT de rafraîchir pour ne rien rater
   subscribeToSalon();
   await refreshPlayersList();
-
-  // Vérifie si la partie est déjà en cours (cas où on rejoint tard)
   const{data:currentSalon}=await db.from('salons').select('*').eq('id',state.salonId).single();
-  if(currentSalon && currentSalon.status !== 'waiting'){
-    handleSalonUpdate(currentSalon);
-  }
+  if(currentSalon&&currentSalon.status!=='waiting')handleSalonUpdate(currentSalon);
 }
 
 async function refreshPlayersList(){
@@ -656,480 +597,308 @@ async function refreshPlayersList(){
   }
 }
 
-function copyCode(){ navigator.clipboard.writeText(state.salonCode).then(()=>showToast('Code copié ! 📋')); }
+function copyCode(){navigator.clipboard.writeText(state.salonCode).then(()=>showToast('Code copié ! 📋'));}
 
 async function leaveSalon(){
-  if(state.playerId) await db.from('players').delete().eq('id',state.playerId);
+  if(state.playerId)await db.from('players').delete().eq('id',state.playerId);
   unsubscribeRealtime();
   state.salonId=null;state.salonCode=null;state.playerId=null;
   state.isHost=false;state.isMulti=false;
+  // Arrête l'audio vote
+  if(state.cvoteAudio){state.cvoteAudio.pause();state.cvoteAudio=null;}
   goHome();
 }
 
 // ─────────────────────────────────────────────────────
-// 21. REALTIME
+// REALTIME + POLLING
 // ─────────────────────────────────────────────────────
 function subscribeToSalon(){
   unsubscribeRealtime();
+  let lastStatus='', lastPlayedCount=-1, lastVoteIndex=-1;
 
-  // Polling toutes les 2 secondes — vérifie salon ET joueurs
-  let lastStatus = '';
-  let lastPlayedCount = -1;
-
-  const pollInterval = setInterval(async () => {
-    if(!state.salonId){ clearInterval(pollInterval); return; }
-
-    // Recharge salon et joueurs en même temps
-    const [salonRes, playersRes] = await Promise.all([
+  const pollInterval=setInterval(async()=>{
+    if(!state.salonId){clearInterval(pollInterval);return;}
+    const[salonRes,playersRes]=await Promise.all([
       db.from('salons').select('*').eq('id',state.salonId).single(),
       db.from('players').select('*').eq('salon_id',state.salonId).order('created_at')
     ]);
-
-    const salon   = salonRes.data;
-    const players = playersRes.data;
-    if(!salon || !players) return;
-
-    state.players = players;
-
-    const playedCount = players.filter(p=>p.has_played).length;
-    const statusChanged = salon.status !== lastStatus;
-    const playersChanged = playedCount !== lastPlayedCount;
-
-    lastStatus      = salon.status;
-    lastPlayedCount = playedCount;
-
-    if(statusChanged || playersChanged){
-      // Toujours rafraîchir la liste en salle d'attente
-      if(document.getElementById('screen-waiting').classList.contains('active')){
-        refreshPlayersList();
-      }
-      checkAndProgress(salon, players);
+    const salon=salonRes.data, players=playersRes.data;
+    if(!salon||!players)return;
+    state.players=players;
+    const playedCount=players.filter(p=>p.has_played).length;
+    const voteIndex=salon.current_vote_index||0;
+    const changed=salon.status!==lastStatus||playedCount!==lastPlayedCount||voteIndex!==lastVoteIndex;
+    lastStatus=salon.status;lastPlayedCount=playedCount;lastVoteIndex=voteIndex;
+    if(changed){
+      if(document.getElementById('screen-waiting').classList.contains('active'))refreshPlayersList();
+      checkAndProgress(salon,players);
     }
-  }, 2000);
+  },2000);
 
-  state.realtimeChannel = db
-    .channel(`salon-${state.salonId}`)
-    .on('postgres_changes',{event:'UPDATE',schema:'public',table:'salons',filter:`id=eq.${state.salonId}`},
-      async () => {
-        const [salonRes, playersRes] = await Promise.all([
-          db.from('salons').select('*').eq('id',state.salonId).single(),
-          db.from('players').select('*').eq('salon_id',state.salonId).order('created_at')
-        ]);
-        if(salonRes.data && playersRes.data){
-          state.players = playersRes.data;
-          checkAndProgress(salonRes.data, playersRes.data);
-        }
-      })
+  state.realtimeChannel=db.channel(`salon-${state.salonId}`)
     .on('postgres_changes',{event:'INSERT',schema:'public',table:'players',filter:`salon_id=eq.${state.salonId}`},
-      async () => {
+      async()=>{
         const{data:players}=await db.from('players').select('*').eq('salon_id',state.salonId).order('created_at');
-        if(!players) return;
-        state.players = players;
-        if(document.getElementById('screen-waiting').classList.contains('active')){
-          refreshPlayersList();
-        }
+        if(players){state.players=players;if(document.getElementById('screen-waiting').classList.contains('active'))refreshPlayersList();}
+      })
+    .on('postgres_changes',{event:'UPDATE',schema:'public',table:'salons',filter:`id=eq.${state.salonId}`},
+      async(payload)=>{
+        const{data:players}=await db.from('players').select('*').eq('salon_id',state.salonId).order('created_at');
+        state.players=players||[];
+        checkAndProgress(payload.new,state.players);
       })
     .on('postgres_changes',{event:'UPDATE',schema:'public',table:'players',filter:`salon_id=eq.${state.salonId}`},
-      async () => {
-        const [salonRes, playersRes] = await Promise.all([
+      async()=>{
+        const[salonRes,playersRes]=await Promise.all([
           db.from('salons').select('*').eq('id',state.salonId).single(),
           db.from('players').select('*').eq('salon_id',state.salonId).order('created_at')
         ]);
-        if(salonRes.data && playersRes.data){
-          state.players = playersRes.data;
-          if(document.getElementById('screen-waiting').classList.contains('active')){
-            refreshPlayersList();
-          }
-          checkAndProgress(salonRes.data, playersRes.data);
-        }
+        if(salonRes.data&&playersRes.data){state.players=playersRes.data;checkAndProgress(salonRes.data,playersRes.data);}
       })
     .subscribe();
 
-  state.pollInterval = pollInterval;
+  state.pollInterval=pollInterval;
 }
 
 function unsubscribeRealtime(){
-  if(state.realtimeChannel){ db.removeChannel(state.realtimeChannel); state.realtimeChannel=null; }
-  if(state.pollInterval){ clearInterval(state.pollInterval); state.pollInterval=null; }
+  if(state.realtimeChannel){db.removeChannel(state.realtimeChannel);state.realtimeChannel=null;}
+  if(state.pollInterval){clearInterval(state.pollInterval);state.pollInterval=null;}
 }
 
-// Fonction centrale qui décide quoi faire selon l'état du salon et des joueurs
-async function checkAndProgress(salon, players){
-  if(!salon || !players) return;
+// ─────────────────────────────────────────────────────
+// LOGIQUE CENTRALE DE PROGRESSION
+// ─────────────────────────────────────────────────────
+async function checkAndProgress(salon,players){
+  if(!salon||!players)return;
+  if(salon.video_ids)state.videoIds=JSON.parse(salon.video_ids);
+  state.currentRound=salon.current_round||0;
 
-  if(salon.video_ids) state.videoIds = JSON.parse(salon.video_ids);
-  state.currentRound = salon.current_round || 0;
-
-  // ── Salle d'attente → ne fait rien sauf refresh liste ──
-  if(salon.status === 'waiting'){
-    if(document.getElementById('screen-waiting').classList.contains('active')){
-      refreshPlayersList();
-    }
+  if(salon.status==='waiting'){
+    if(document.getElementById('screen-waiting').classList.contains('active'))refreshPlayersList();
     return;
   }
 
-  // ── Partie en cours ou round suivant ──
-  if(salon.status === 'playing' || salon.status === 'next_round'){
-    const allPlayed = players.every(p => p.has_played);
-
+  if(salon.status==='playing'||salon.status==='next_round'){
+    const allPlayed=players.every(p=>p.has_played);
     if(allPlayed){
-      // Tout le monde a joué → passe au vote (hôte uniquement)
-      if(state.isHost && salon.status !== 'voting'){
-        await db.from('salons').update({status:'voting', current_vote_index:0}).eq('id',state.salonId);
-      }
+      if(state.isHost)await db.from('salons').update({status:'voting',current_vote_index:0}).eq('id',state.salonId);
       return;
     }
-
-    // Trouve le prochain joueur à jouer
-    const nextPlayer = players.find(p => !p.has_played);
-    if(!nextPlayer) return;
-
-    const isMyTurn  = nextPlayer.id === state.playerId;
-    const myPlayer  = players.find(p => p.id === state.playerId);
-    const iAlreadyPlayed = myPlayer?.has_played;
-
+    const nextPlayer=players.find(p=>!p.has_played);
+    if(!nextPlayer)return;
+    const isMyTurn=nextPlayer.id===state.playerId;
+    const myPlayer=players.find(p=>p.id===state.playerId);
     if(isMyTurn){
-      // C'est MON tour → lance le jeu si pas déjà dessus
-      if(!document.getElementById('screen-game').classList.contains('active') ||
+      if(!document.getElementById('screen-game').classList.contains('active')||
          document.getElementById('phase-waiting-others').classList.contains('active')){
-        const videoId = state.videoIds[state.currentRound];
-        const video   = VIDEOS.find(v => v.id === videoId);
-        if(!video){ showToast('Vidéo introuvable 😕'); return; }
-        state.currentVideo = video;
-        loadGameScreen();
+        const videoId=state.videoIds[state.currentRound];
+        const video=VIDEOS.find(v=>v.id===videoId);
+        if(!video){showToast('Vidéo introuvable 😕');return;}
+        state.currentVideo=video;loadGameScreen();
       }
-    } else if(iAlreadyPlayed){
-      // J'ai déjà joué → reste en attente
+    } else if(myPlayer?.has_played){
       if(document.getElementById('screen-game').classList.contains('active')){
         showPhase('phase-waiting-others');
-        // Met à jour la progression
-        const prog = document.getElementById('phase-waiting-progress');
-        if(prog) prog.innerHTML = players.map(p=>`
+        const prog=document.getElementById('phase-waiting-progress');
+        if(prog)prog.innerHTML=players.map(p=>`
           <div style="display:flex;align-items:center;gap:8px;padding:6px 0;font-size:13px;color:var(--text-muted)">
             <span>${p.avatar}</span><span>${escapeHtml(p.pseudo)}</span>
             <span style="margin-left:auto">${p.has_played?'✅':'⏳'}</span>
           </div>`).join('');
       }
     } else {
-      // Pas encore mon tour → message d'attente
       if(document.getElementById('screen-waiting').classList.contains('active')){
-        const gc = document.getElementById('guest-controls');
-        if(gc) gc.innerHTML = `
-          <p class="waiting-hint">⏳ La partie a commencé ! En attente de ton tour...</p>
-          <div class="waiting-spinner"></div>`;
+        const gc=document.getElementById('guest-controls');
+        if(gc)gc.innerHTML=`<p class="waiting-hint">⏳ La partie a commencé ! En attente de ton tour...</p><div class="waiting-spinner"></div>`;
       }
     }
     return;
   }
 
-  // ── Vote collectif ──
-  if(salon.status === 'voting'){
+  if(salon.status==='voting'){
+    const newVoteIndex=salon.current_vote_index||0;
     if(!document.getElementById('screen-collective-vote').classList.contains('active')){
-      loadCollectiveVoteScreen(salon);
-    } else {
-      // L'hôte a passé à la prestation suivante
-      const newVoteIndex = salon.current_vote_index || 0;
-      if(newVoteIndex !== state.voteQueueIndex){
-        state.voteQueueIndex   = newVoteIndex;
-        state.hasVotedThisPerf = false;
-        showCollectiveVote();
-      }
+      await loadCollectiveVoteScreen(salon);
+    } else if(newVoteIndex!==state.voteQueueIndex){
+      state.voteQueueIndex=newVoteIndex;state.hasVotedThisPerf=false;
+      showCollectiveVote();
     }
     return;
   }
 
-  // ── Fin ──
-  if(salon.status === 'finished'){
-    showMultiResults();
-  }
-}
-
-async function handleSalonUpdate(salon){
-  const{data:players}=await db.from('players').select('*').eq('salon_id',state.salonId).order('created_at');
-  state.players = players||[];
-  checkAndProgress(salon, state.players);
+  if(salon.status==='finished'){showMultiResults();return;}
 }
 
 // ─────────────────────────────────────────────────────
-// 22. LANCER LA PARTIE
+// LANCER LA PARTIE
 // ─────────────────────────────────────────────────────
 async function startMultiGame(){
-  // Recharge les joueurs dans l'ordre
   const{data:players}=await db.from('players').select('*').eq('salon_id',state.salonId).order('created_at');
   state.players=players||[];
-  await db.from('salons').update({status:'playing', current_round:0}).eq('id',state.salonId);
+  await db.from('salons').update({status:'playing',current_round:0}).eq('id',state.salonId);
 }
 
-// ─────────────────────────────────────────────────────
-// 23. TOURS DE JEU
-// ─────────────────────────────────────────────────────
-function startNextTurn(){
-  // Recharge toujours depuis state.players (mis à jour par realtime)
-  const nextPlayer = state.players.find(p => !p.has_played);
-
-  if(!nextPlayer){
-    // Tout le monde a joué → l'hôte passe au vote
-    if(state.isHost){
-      db.from('salons').update({status:'voting', current_vote_index:0}).eq('id',state.salonId);
-    } else {
-      // Non-hôte : reste en attente que l'hôte déclenche le vote
-      showPhase('phase-waiting-others');
-    }
-    return;
-  }
-
-  state.currentTurnIndex = state.players.indexOf(nextPlayer);
-  const isMyTurn = nextPlayer.id === state.playerId;
-
-  // Met à jour la progression visible
-  const prog = document.getElementById('phase-waiting-progress');
-  if(prog) prog.innerHTML = state.players.map(p=>`
-    <div style="display:flex;align-items:center;gap:8px;padding:6px 0;font-size:13px;color:var(--text-muted)">
-      <span>${p.avatar}</span><span>${escapeHtml(p.pseudo)}</span>
-      <span style="margin-left:auto">${p.has_played?'✅':'⏳'}</span>
-    </div>`).join('');
-
-  if(isMyTurn){
-    // C'est mon tour !
-    const videoId = state.videoIds[state.currentRound];
-    const video   = VIDEOS.find(v=>v.id===videoId);
-    if(!video){ showToast('Vidéo introuvable 😕'); return; }
-    state.currentVideo = video;
-    loadGameScreen();
-  } else if(state.playerId && state.players.find(p=>p.id===state.playerId)?.has_played){
-    // J'ai déjà joué → attente des autres
-    if(!document.getElementById('phase-waiting-others').classList.contains('active')){
-      showPhase('phase-waiting-others');
-    }
-  } else {
-    // Ce n'est pas encore mon tour → attente
-    showPhase('phase-waiting-others');
-  }
-}
-
-function leaveGame(){
-  if(state.isMulti) leaveSalon();
-  else goPrep();
-}
+function leaveGame(){if(state.isMulti)leaveSalon();else goPrep();}
 
 // ─────────────────────────────────────────────────────
-// 24. SOUMETTRE LA PERFORMANCE
+// SOUMETTRE LA PERFORMANCE
 // ─────────────────────────────────────────────────────
 async function submitPerformance(){
-  if(!state.audioBlob){ showToast('Enregistre d\'abord ton imitation !'); return; }
-
-  showPhase('phase-waiting-others');
-  showToast('Envoi en cours...');
-
-  // Upload audio
+  if(!state.audioBlob){showToast('Enregistre d\'abord ton imitation !');return;}
+  showPhase('phase-waiting-others');showToast('Envoi en cours...');
   const ext=state.audioBlob.type.includes('mp4')?'mp4':state.audioBlob.type.includes('ogg')?'ogg':'webm';
   const filename=`${state.salonId}/${state.playerId}_round${state.currentRound}.${ext}`;
   let audioPublicUrl='';
-
   const{error:uploadError}=await db.storage.from('audio-performances')
-    .upload(filename, state.audioBlob, {contentType:state.audioBlob.type, upsert:true});
-
+    .upload(filename,state.audioBlob,{contentType:state.audioBlob.type,upsert:true});
   if(!uploadError){
     const{data:{publicUrl}}=db.storage.from('audio-performances').getPublicUrl(filename);
     audioPublicUrl=publicUrl;
   }
-
-  // Enregistre la performance
   await db.from('performances').insert({
-    salon_id:state.salonId, player_id:state.playerId,
-    round_index:state.currentRound, audio_url:audioPublicUrl
+    salon_id:state.salonId,player_id:state.playerId,
+    round_index:state.currentRound,audio_url:audioPublicUrl
   });
-
-  // Marque le joueur comme ayant joué
   await db.from('players').update({has_played:true}).eq('id',state.playerId);
-
   showToast('Performance envoyée ! ✅');
-
-  // Vérifie si tous ont joué
   const{data:players}=await db.from('players').select('*').eq('salon_id',state.salonId);
   state.players=players||[];
   const allPlayed=state.players.every(p=>p.has_played);
-  if(allPlayed && state.isHost){
-    await db.from('salons').update({status:'voting', current_vote_index:0}).eq('id',state.salonId);
-  }
+  if(allPlayed&&state.isHost)await db.from('salons').update({status:'voting',current_vote_index:0}).eq('id',state.salonId);
 }
 
 // ─────────────────────────────────────────────────────
-// 25. VOTE COLLECTIF SYNCHRONISÉ
+// VOTE COLLECTIF
 // ─────────────────────────────────────────────────────
 async function loadCollectiveVoteScreen(salon){
-  // Charge toutes les performances du round courant
-  const{data:perfs}=await db.from('performances').select('*, players(pseudo,avatar,id)')
-    .eq('salon_id',state.salonId).eq('round_index',state.currentRound);
-
-  state.voteQueue      = perfs||[];
-  state.voteQueueIndex = salon.current_vote_index||0;
-  state.hasVotedThisPerf = false;
-
+  const{data:perfs}=await db.from('performances')
+    .select('*, players(pseudo,avatar,id)')
+    .eq('salon_id',state.salonId)
+    .eq('round_index',state.currentRound);
+  state.voteQueue=perfs||[];
+  state.voteQueueIndex=salon.current_vote_index||0;
+  state.hasVotedThisPerf=false;
   showCollectiveVote();
 }
 
 function showCollectiveVote(){
-  if(state.voteQueueIndex >= state.voteQueue.length){
-    if(state.isHost) advanceRound();
+  // Arrête l'audio précédent
+  if(state.cvoteAudio){state.cvoteAudio.pause();state.cvoteAudio=null;}
+  const cvVideo=document.getElementById('cvote-video');
+  cvVideo.pause();
+
+  if(state.voteQueueIndex>=state.voteQueue.length){
+    if(state.isHost)advanceRound();
     return;
   }
 
-  const perf   = state.voteQueue[state.voteQueueIndex];
-  const player = perf.players;
-  const isOwn  = perf.player_id === state.playerId;
+  const perf=state.voteQueue[state.voteQueueIndex];
+  const player=perf.players;
+  const isOwn=perf.player_id===state.playerId;
 
-  // Met à jour l'interface
-  document.getElementById('cvote-avatar').textContent  = state.avatar;
-  document.getElementById('cvote-pseudo').textContent  = state.pseudo;
-  document.getElementById('cvote-score').textContent   = state.score;
-  document.getElementById('cvote-current').textContent = state.voteQueueIndex + 1;
-  document.getElementById('cvote-total').textContent   = state.voteQueue.length;
+  document.getElementById('cvote-avatar').textContent=state.avatar;
+  document.getElementById('cvote-pseudo').textContent=state.pseudo;
+  document.getElementById('cvote-score').textContent=state.score;
+  document.getElementById('cvote-current').textContent=state.voteQueueIndex+1;
+  document.getElementById('cvote-total').textContent=state.voteQueue.length;
+  document.getElementById('cvote-round').textContent=state.currentRound+1;
 
-  document.getElementById('cvote-player-info').innerHTML = `
+  document.getElementById('cvote-player-info').innerHTML=`
     <span class="cvote-player-avatar">${player?.avatar||'🎭'}</span>
     <span class="cvote-player-name">${escapeHtml(player?.pseudo||'?')}</span>`;
 
-  // Charge vidéo
-  const videoId = state.videoIds[state.currentRound];
-  const video   = VIDEOS.find(v => v.id === videoId);
-  const cvVideo = document.getElementById('cvote-video');
-  cvVideo.pause();
-  cvVideo.muted = true;
-  if(video){ cvVideo.src = video.url; cvVideo.load(); }
+  // Charge la vidéo originale
+  const videoId=state.videoIds[state.currentRound];
+  const video=VIDEOS.find(v=>v.id===videoId);
+  cvVideo.muted=true;
+  if(video){cvVideo.src=video.url;cvVideo.load();}
 
-  // Charge audio dans un objet Audio séparé (plus fiable)
-  if(state.currentVoteAudio){
-    state.currentVoteAudio.pause();
-    state.currentVoteAudio = null;
-  }
-  if(perf.audio_url){
-    state.currentVoteAudio = new Audio(perf.audio_url);
+  // Charge l'audio imitation dans un objet Audio séparé
+  // → pas de restriction CORS car on utilise new Audio() pas <audio>
+  if(perf.audio_url&&perf.audio_url.length>0){
+    state.cvoteAudio=new Audio(perf.audio_url);
+    state.cvoteAudio.preload='auto';
   }
 
-  // Reset UI — chaque joueur contrôle sa propre lecture
-  document.getElementById('cvote-vote-section').classList.add('hidden');
+  // Sync barre de progression
+  cvVideo.addEventListener('timeupdate',updateCvoteProgress);
+  cvVideo.addEventListener('ended',()=>{
+    document.getElementById('btn-cvote-playpause').textContent='▶';
+    if(state.cvoteAudio)state.cvoteAudio.pause();
+  });
+
+  // Reset contrôles
+  document.getElementById('btn-cvote-playpause').textContent='▶';
+  document.getElementById('cvote-progress-fill').style.width='0%';
+  document.getElementById('cvote-time').textContent='0:00 / 0:00';
+
+  // Boutons de vote
   document.getElementById('cvote-result-section').classList.add('hidden');
-  document.getElementById('cvote-host-ctrl').classList.add('hidden');
-  document.getElementById('cvote-guest-waiting').classList.add('hidden');
-
-  // Bouton de lecture individuel pour tous
-  const launchBtn = document.getElementById('btn-cvote-launch');
-  launchBtn.disabled = false;
-  launchBtn.textContent = '▶ Voir la prestation';
-  launchBtn.classList.remove('hidden');
-
-  // Message si c'est ta propre perf
-  document.getElementById('cvote-own-msg').classList.toggle('hidden', !isOwn);
-
-  // Boutons de vote — désactivés pour sa propre perf
   document.getElementById('cvote-vote-section').classList.remove('hidden');
+  document.getElementById('cvote-own-msg').classList.toggle('hidden',!isOwn);
+  const voteButtons=document.getElementById('cvote-vote-buttons');
   if(isOwn){
-    document.querySelectorAll('.vote-btn').forEach(b=>{ b.style.opacity='0.3'; b.style.pointerEvents='none'; });
-    document.getElementById('cvote-votes-received').classList.remove('hidden');
+    voteButtons.style.opacity='0.3';voteButtons.style.pointerEvents='none';
   } else {
-    document.querySelectorAll('.vote-btn').forEach(b=>{ b.style.opacity='1'; b.style.pointerEvents='auto'; });
-    document.getElementById('cvote-votes-received').classList.add('hidden');
+    voteButtons.style.opacity='1';voteButtons.style.pointerEvents='auto';
   }
 
-  state.hasVotedThisPerf = false;
+  state.hasVotedThisPerf=false;
   showScreen('screen-collective-vote');
 }
 
-function launchCollectivePlayback(){
-  const cvVideo = document.getElementById('cvote-video');
-  const btn     = document.getElementById('btn-cvote-launch');
-
-  btn.disabled     = true;
-  btn.textContent  = '⏳ Chargement...';
-
-  function doPlay(){
-    btn.textContent = '▶ En cours...';
-    cvVideo.muted       = true;
-    cvVideo.currentTime = 0;
-    cvVideo.play().catch(e => console.warn('video:', e));
-
-    if(state.currentVoteAudio){
-      state.currentVoteAudio.currentTime = 0;
-      state.currentVoteAudio.play().catch(e => console.warn('audio:', e));
-    }
-
-    cvVideo.onended = () => {
-      if(state.currentVoteAudio) state.currentVoteAudio.pause();
-      btn.textContent = '🔄 Revoir';
-      btn.disabled    = false;
-      btn.onclick     = doPlay;
-    };
-  }
-
-  if(cvVideo.readyState >= 3){
-    doPlay();
-  } else {
-    cvVideo.addEventListener('canplay', doPlay, {once: true});
-    setTimeout(() => { if(cvVideo.paused) doPlay(); }, 3000);
-  }
-}
-
 async function castCollectiveVote(points){
-  if(state.hasVotedThisPerf) return;
-  const perf = state.voteQueue[state.voteQueueIndex];
-  const isOwn = perf.player_id === state.playerId;
-  if(isOwn) return; // ne peut pas voter pour soi-même
+  if(state.hasVotedThisPerf)return;
+  const perf=state.voteQueue[state.voteQueueIndex];
+  if(perf.player_id===state.playerId)return;
+  state.hasVotedThisPerf=true;
 
-  state.hasVotedThisPerf = true;
-
-  // Enregistre le vote
   await db.from('votes').insert({
-    salon_id:state.salonId, voter_id:state.playerId,
-    target_id:perf.player_id, points
+    salon_id:state.salonId,voter_id:state.playerId,
+    target_id:perf.player_id,points
   });
 
-  // Met à jour le score
-  const target = state.players.find(p=>p.id===perf.player_id);
+  const target=state.players.find(p=>p.id===perf.player_id);
   if(target){
-    await db.from('players').update({score:(target.score||0)+points}).eq('id',perf.player_id);
-    target.score=(target.score||0)+points;
+    const newScore=(target.score||0)+points;
+    await db.from('players').update({score:newScore}).eq('id',perf.player_id);
+    target.score=newScore;
   }
 
-  // Affiche le résultat
   const msgs={3:{emoji:'🏆',txt:'+30 pts'},1:{emoji:'😄',txt:'+10 pts'},0:{emoji:'😅',txt:'+0 pts'}};
-  document.getElementById('cvote-result-emoji').textContent = msgs[points].emoji;
-  document.getElementById('cvote-result-pts').textContent   = msgs[points].txt;
+  document.getElementById('cvote-result-emoji').textContent=msgs[points].emoji;
+  document.getElementById('cvote-result-pts').textContent=msgs[points].txt;
   document.getElementById('cvote-result-section').classList.remove('hidden');
   document.getElementById('cvote-vote-section').classList.add('hidden');
 
-  // L'hôte peut passer à la prestation suivante
-  document.getElementById('cvote-next-ctrl').classList.toggle('hidden', !state.isHost);
-  document.getElementById('cvote-next-waiting').classList.toggle('hidden', state.isHost);
+  // Hôte : bouton suivant. Guest : attente
+  document.getElementById('cvote-next-ctrl').classList.toggle('hidden',!state.isHost);
+  document.getElementById('cvote-next-waiting').classList.toggle('hidden',state.isHost);
 }
 
 async function nextCollectiveVote(){
-  const nextIndex = state.voteQueueIndex + 1;
-  // Met à jour l'index dans Supabase pour sync tous les clients
-  await db.from('salons').update({current_vote_index: nextIndex}).eq('id',state.salonId);
-  state.voteQueueIndex = nextIndex;
-  state.hasVotedThisPerf = false;
+  const nextIndex=state.voteQueueIndex+1;
+  await db.from('salons').update({current_vote_index:nextIndex}).eq('id',state.salonId);
+  state.voteQueueIndex=nextIndex;state.hasVotedThisPerf=false;
   showCollectiveVote();
 }
 
 async function advanceRound(){
-  const nextRound = state.currentRound + 1;
-  if(nextRound >= state.videoIds.length){
-    // Tournoi terminé
+  const nextRound=state.currentRound+1;
+  if(nextRound>=state.videoIds.length){
     await db.from('salons').update({status:'finished'}).eq('id',state.salonId);
   } else {
-    // Reset has_played pour tous les joueurs
     await db.from('players').update({has_played:false}).eq('salon_id',state.salonId);
     await db.from('salons').update({
-      status:'next_round', current_round:nextRound,
-      current_vote_index:0, votes_this_round:0,
-      video_id: state.videoIds[nextRound]
+      status:'next_round',current_round:nextRound,
+      current_vote_index:0,votes_this_round:0,
+      video_id:state.videoIds[nextRound]
     }).eq('id',state.salonId);
   }
 }
 
 // ─────────────────────────────────────────────────────
-// 26. RÉSULTATS FINAUX
+// RÉSULTATS FINAUX
 // ─────────────────────────────────────────────────────
 async function showMultiResults(){
   const{data:players}=await db.from('players').select('*').eq('salon_id',state.salonId).order('score',{ascending:false});
@@ -1142,12 +911,8 @@ async function showMultiResults(){
       <span class="mr-name">${escapeHtml(p.pseudo)}${p.id===state.playerId?' (toi)':''}</span>
       <span class="mr-score">${p.score} pts</span>
     </div>`).join('');
-
   const me=players?.find(p=>p.id===state.playerId);
-  if(me&&me.score>0){
-    state.score+=me.score;
-    savePerformance();saveToStorage();
-  }
+  if(me&&me.score>0){state.score+=me.score;savePerformance();saveToStorage();}
   showScreen('screen-multi-result');
 }
 
@@ -1156,7 +921,17 @@ async function playAgainMulti(){
     await db.from('players').update({has_played:false,score:0}).eq('salon_id',state.salonId);
     await db.from('votes').delete().eq('salon_id',state.salonId);
     await db.from('performances').delete().eq('salon_id',state.salonId);
-    await db.from('salons').update({status:'waiting',current_round:0,current_vote_index:0}).eq('id',state.salonId);
+    // Tire de nouvelles vidéos aléatoires
+    let pool=state.lobbyDiff==='tous'?VIDEOS:VIDEOS.filter(v=>getDifficulty(durationCache[v.id])===state.lobbyDiff);
+    if(!pool.length)pool=VIDEOS;
+    const shuffled=[...pool].sort(()=>Math.random()-0.5);
+    const picked=shuffled.slice(0,Math.min(state.videoCount,shuffled.length));
+    const newVideoIds=picked.map(v=>v.id);
+    state.videoIds=newVideoIds;
+    await db.from('salons').update({
+      status:'waiting',current_round:0,current_vote_index:0,votes_this_round:0,
+      video_ids:JSON.stringify(newVideoIds),video_id:newVideoIds[0]
+    }).eq('id',state.salonId);
     const{data:salon}=await db.from('salons').select('*').eq('id',state.salonId).single();
     enterWaitingRoom(salon);
   } else {
@@ -1165,7 +940,7 @@ async function playAgainMulti(){
 }
 
 // ─────────────────────────────────────────────────────
-// 27. CLASSEMENT LOCAL
+// CLASSEMENT LOCAL
 // ─────────────────────────────────────────────────────
 function refreshLeaderboard(){
   const lb=JSON.parse(localStorage.getItem('imitgame_lb')||'[]');
@@ -1178,7 +953,7 @@ function confirmResetLeaderboard(){document.getElementById('modal-reset').classL
 function resetLeaderboard(){localStorage.removeItem('imitgame_lb');state.score=0;saveToStorage();closeModal('modal-reset');refreshLeaderboard();updateHomeProfile();}
 
 // ─────────────────────────────────────────────────────
-// 28. STOCKAGE LOCAL
+// STOCKAGE LOCAL
 // ─────────────────────────────────────────────────────
 function saveToStorage(){localStorage.setItem('imitgame_pseudo',state.pseudo);localStorage.setItem('imitgame_avatar',state.avatar);localStorage.setItem('imitgame_score',state.score);}
 function loadFromStorage(){state.pseudo=localStorage.getItem('imitgame_pseudo')||'';state.avatar=localStorage.getItem('imitgame_avatar')||'🎭';state.score=parseInt(localStorage.getItem('imitgame_score')||'0');}
@@ -1192,7 +967,7 @@ function savePerformance(){
 }
 
 // ─────────────────────────────────────────────────────
-// 29. TOAST & UTILITAIRES
+// TOAST & UTILITAIRES
 // ─────────────────────────────────────────────────────
 function showToast(msg,duration=2500){
   const t=document.getElementById('toast');
@@ -1204,12 +979,18 @@ function stopEverything(){
   if(v){v.pause();v.currentTime=0;v.onended=null;v.removeEventListener('timeupdate',onTimeUpdate);v.removeEventListener('ended',onVideoEnded);}
   if(state.mediaRecorder&&state.mediaRecorder.state!=='inactive'){state.mediaRecorder.onstop=null;state.mediaRecorder.stop();}
   state.isRecording=false;state.isPaused=false;
+  if(currentResultAudio){currentResultAudio.pause();currentResultAudio=null;}
+  if(state.cvoteAudio){state.cvoteAudio.pause();state.cvoteAudio=null;}
 }
 function closeModal(id){document.getElementById(id).classList.add('hidden');}
 function escapeHtml(str){return str.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+function handleSalonUpdate(salon){
+  db.from('players').select('*').eq('salon_id',state.salonId).order('created_at')
+    .then(({data:players})=>{state.players=players||[];checkAndProgress(salon,state.players);});
+}
 
 // ─────────────────────────────────────────────────────
-// 30. INIT
+// INIT
 // ─────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded',()=>{
   loadFromStorage();updateHomeProfile();refreshLeaderboard();
