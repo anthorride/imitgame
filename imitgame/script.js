@@ -746,18 +746,14 @@ function leaveGame(){if(state.isMulti)leaveSalon();else goPrep();}
 async function submitPerformance(){
   if(!state.audioBlob){showToast('Enregistre d\'abord ton imitation !');return;}
   showPhase('phase-waiting-others');showToast('Envoi en cours...');
-  const ext=state.audioBlob.type.includes('mp4')?'mp4':state.audioBlob.type.includes('ogg')?'ogg':'webm';
-  const filename=`${state.salonId}/${state.playerId}_round${state.currentRound}.${ext}`;
-  let audioPublicUrl='';
-  const{error:uploadError}=await db.storage.from('audio-performances')
-    .upload(filename,state.audioBlob,{contentType:state.audioBlob.type,upsert:true});
-  if(!uploadError){
-    const{data:{publicUrl}}=db.storage.from('audio-performances').getPublicUrl(filename);
-    audioPublicUrl=publicUrl;
-  }
+  const base64=await new Promise(resolve=>{
+    const reader=new FileReader();
+    reader.onloadend=()=>resolve(reader.result);
+    reader.readAsDataURL(state.audioBlob);
+  });
   await db.from('performances').insert({
     salon_id:state.salonId,player_id:state.playerId,
-    round_index:state.currentRound,audio_url:audioPublicUrl
+    round_index:state.currentRound,audio_url:base64
   });
   await db.from('players').update({has_played:true}).eq('id',state.playerId);
   showToast('Performance envoyée ! ✅');
@@ -798,16 +794,13 @@ function showCollectiveVote(){
   cvVideo.removeEventListener('timeupdate', updateCvoteProgress);
 
   if(state.voteQueueIndex >= state.voteQueue.length){
-    // Tout le monde a été noté → seul l'hôte passe au round suivant
     if(state.isHost){
       advanceRound();
     } else {
-      // Non-hôte : affiche un message d'attente, le polling détectera le changement de statut
       document.getElementById('cvote-vote-section').classList.add('hidden');
       document.getElementById('cvote-result-section').classList.add('hidden');
-      const waiting = document.getElementById('cvote-next-waiting');
-      waiting.classList.remove('hidden');
-      waiting.innerHTML = '<p style="text-align:center;color:var(--text-muted);padding:24px 0">⏳ En attente du round suivant...</p>';
+      document.getElementById('cvote-player-info').innerHTML =
+        '<span style="color:var(--text-muted);font-size:14px">⏳ En attente du round suivant...</span>';
     }
     return;
   }
