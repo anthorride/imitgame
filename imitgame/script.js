@@ -718,7 +718,7 @@ async function checkAndProgress(salon,players){
   if(salon.status==='voting'){
     const newVoteIndex=salon.current_vote_index||0;
     if(!document.getElementById('screen-collective-vote').classList.contains('active')){
-      await loadCollectiveVoteScreen(salon);
+      await loadCollectiveVoteScreen();
     } else if(newVoteIndex!==state.voteQueueIndex){
       state.voteQueueIndex=newVoteIndex;state.hasVotedThisPerf=false;
       showCollectiveVote();
@@ -770,7 +770,7 @@ async function submitPerformance(){
 // ─────────────────────────────────────────────────────
 // VOTE COLLECTIF
 // ─────────────────────────────────────────────────────
-async function loadCollectiveVoteScreen(salon){
+async function loadCollectiveVoteScreen(){
   const{data:perfs}=await db.from('performances')
     .select('*, players(pseudo,avatar,id)')
     .eq('salon_id',state.salonId)
@@ -798,8 +798,17 @@ function showCollectiveVote(){
   cvVideo.removeEventListener('timeupdate', updateCvoteProgress);
 
   if(state.voteQueueIndex >= state.voteQueue.length){
-    // Tout le monde a été noté → round suivant automatique
-    advanceRound();
+    // Tout le monde a été noté → seul l'hôte passe au round suivant
+    if(state.isHost){
+      advanceRound();
+    } else {
+      // Non-hôte : affiche un message d'attente, le polling détectera le changement de statut
+      document.getElementById('cvote-vote-section').classList.add('hidden');
+      document.getElementById('cvote-result-section').classList.add('hidden');
+      const waiting = document.getElementById('cvote-next-waiting');
+      waiting.classList.remove('hidden');
+      waiting.innerHTML = '<p style="text-align:center;color:var(--text-muted);padding:24px 0">⏳ En attente du round suivant...</p>';
+    }
     return;
   }
 
@@ -826,7 +835,6 @@ function showCollectiveVote(){
   // Charge l'audio via new Audio() — plus fiable que <audio> pour CORS
   if(perf.audio_url && perf.audio_url.length > 0){
     state.cvoteAudio = new Audio(perf.audio_url);
-    state.cvoteAudio.crossOrigin = 'anonymous';
     state.cvoteAudio.preload = 'auto';
   }
 
