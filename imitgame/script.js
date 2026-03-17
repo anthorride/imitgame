@@ -697,6 +697,10 @@ async function checkAndProgress(salon,players){
         state.currentVideo=video;loadGameScreen();
       }
     } else if(myPlayer?.has_played){
+      if(allPlayed&&state.isHost){
+        await db.from('salons').update({status:'voting',current_vote_index:0}).eq('id',state.salonId);
+        return;
+      }
       if(document.getElementById('screen-game').classList.contains('active')){
         showPhase('phase-waiting-others');
         const prog=document.getElementById('phase-waiting-progress');
