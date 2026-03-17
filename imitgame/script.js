@@ -755,6 +755,7 @@ async function submitPerformance(){
     reader.onloadend=()=>resolve(reader.result);
     reader.readAsDataURL(state.audioBlob);
   });
+  console.log('submitPerformance round:', state.currentRound, 'player:', state.playerId);
   await db.from('performances').insert({
     salon_id:state.salonId,player_id:state.playerId,
     round_index:state.currentRound,audio_url:base64
@@ -776,6 +777,7 @@ async function loadCollectiveVoteScreen(){
     .eq('salon_id',state.salonId)
     .eq('round_index',state.currentRound);
 
+  console.log('voteQueue loaded:', perfs, 'currentRound:', state.currentRound, 'myPlayerId:', state.playerId);
   // ✅ Filtre : on ne montre PAS sa propre performance
   state.voteQueue = (perfs||[]).filter(p => p.player_id !== state.playerId);
   state.voteQueueIndex = 0;
