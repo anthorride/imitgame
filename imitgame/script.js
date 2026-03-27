@@ -807,6 +807,7 @@ async function loadCollectiveVoteScreen(startIndex=0){
     .select('*, players(pseudo,avatar,id,created_at)')
     .eq('salon_id',state.salonId)
     .eq('round_index',state.currentRound);
+  console.log('loadCollectiveVoteScreen round:', state.currentRound, 'perfs:', perfs?.length);
 
   // Ordonnées selon l'ordre d'arrivée des joueurs → cohérent pour tous
   const orderedPlayers=[...state.players].sort((a,b)=>new Date(a.created_at)-new Date(b.created_at));
@@ -982,6 +983,9 @@ async function nextRound(){
     await db.from('salons').update({status:'finished'}).eq('id',state.salonId);
   } else {
     state.advancingVote=false;
+    state.voteQueue=[];
+    state.voteQueueIndex=0;
+    state.hasVotedThisPerf=false;
     await db.from('votes').delete().eq('salon_id',state.salonId);
     await db.from('players').update({has_played:false}).eq('salon_id',state.salonId);
     await db.from('salons').update({
