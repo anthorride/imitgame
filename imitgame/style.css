@@ -224,6 +224,13 @@ html,body{height:100%;font-family:'Nunito',sans-serif;background:var(--dark);col
 .cvote-result-box{background:var(--card-bg);border-radius:var(--radius);padding:20px 40px;border:2px solid var(--yellow);display:flex;flex-direction:column;align-items:center;gap:6px;width:100%;}
 .cvote-result-emoji{font-size:48px;animation:pop 0.5s cubic-bezier(0.175,0.885,0.32,1.275);}
 .cvote-result-pts{font-family:'Bangers',cursive;font-size:28px;color:var(--orange);}
+/* Joueur noté – votes en direct */
+#cvote-being-rated{background:var(--dark3);border:2px solid var(--purple-light);border-radius:var(--radius);padding:16px 20px;text-align:center;width:100%;}
+.cvote-live-votes{display:flex;flex-direction:column;gap:8px;margin:12px 0;max-height:180px;overflow-y:auto;}
+.live-vote-entry{display:flex;align-items:center;gap:8px;background:var(--card-bg);border-radius:var(--radius-sm);padding:8px 12px;font-size:13px;animation:fadeIn 0.35s ease;}
+.live-vote-avatar{font-size:20px;}.live-vote-pseudo{font-weight:700;flex:1;}.live-vote-result{font-weight:800;}.live-vote-pts{color:var(--yellow);font-weight:800;font-size:12px;}
+/* Voté – en attente */
+#cvote-voted-waiting .cvote-result-box{border-color:var(--purple-light);}
 
 /* VOTE BUTTONS */
 .vote-buttons{display:flex;gap:12px;flex-wrap:wrap;justify-content:center;}

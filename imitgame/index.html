@@ -358,23 +358,53 @@
         </div>
       </div>
 
-      <!-- Résultat vote - passage auto après 1.5s -->
-      <div id="cvote-result-section" class="hidden">
+      <!-- Après avoir voté – en attente que l'hôte avance -->
+      <div id="cvote-voted-waiting" class="hidden">
         <div class="cvote-result-box">
-          <div class="cvote-result-emoji" id="cvote-result-emoji">🏆</div>
-          <div class="cvote-result-pts" id="cvote-result-pts">+30 pts</div>
-          <p style="color:var(--text-muted);font-size:12px;margin-top:4px">Passage à la suite...</p>
+          <div class="cvote-result-emoji" id="cvote-voted-emoji">🏆</div>
+          <div class="cvote-result-pts" id="cvote-voted-pts">+30 pts</div>
+          <p style="color:var(--text-muted);font-size:12px;margin-top:4px">⏳ En attente des autres...</p>
+          <div class="waiting-spinner" style="margin:10px auto"></div>
         </div>
       </div>
 
-      <!-- Éléments cachés pour compatibilité JS -->
+      <!-- Pour le joueur qui est noté -->
+      <div id="cvote-being-rated" class="hidden">
+        <p class="cvote-vote-label">👀 Tu es en train d'être noté !</p>
+        <div id="cvote-live-votes" class="cvote-live-votes"></div>
+        <p style="color:var(--text-muted);font-size:12px;margin-top:8px">Les votes arrivent en direct...</p>
+      </div>
+
+      <!-- Compat legacy -->
+      <div id="cvote-result-section" class="hidden"></div>
       <div id="cvote-next-ctrl" class="hidden"></div>
       <div id="cvote-next-waiting" class="hidden"></div>
 
     </div>
   </div>
 
-  <!-- ═══ ÉCRAN 8 : RÉSULTATS FINAUX ═══ -->
+  <!-- ═══ ÉCRAN 8 : CLASSEMENT MANCHE ═══ -->
+  <div id="screen-round-results" class="screen">
+    <div class="multi-result-content">
+      <div style="font-size:56px;animation:pop 0.5s cubic-bezier(0.175,0.885,0.32,1.275)">📊</div>
+      <h2 class="result-title" style="color:var(--yellow);font-family:'Bangers',cursive;font-size:36px;letter-spacing:2px">
+        Manche <span id="round-results-num">1</span> — Classement
+      </h2>
+      <div id="round-results-list" class="multi-result-list"></div>
+      <div id="round-results-host-controls" class="hidden" style="margin-top:24px">
+        <button class="btn btn-primary" onclick="nextRound()">➡️ Manche suivante</button>
+      </div>
+      <div id="round-results-guest-msg" class="hidden" style="margin-top:20px">
+        <p class="waiting-hint">⏳ En attente que l'hôte lance la manche suivante...</p>
+        <div class="waiting-spinner" style="margin:12px auto"></div>
+      </div>
+      <div style="margin-top:16px">
+        <button class="btn btn-secondary" onclick="leaveSalon()">🚪 Quitter</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ ÉCRAN 9 : RÉSULTATS FINAUX ═══ -->
   <div id="screen-multi-result" class="screen">
     <div class="multi-result-content">
       <div style="font-size:72px;animation:pop 0.5s cubic-bezier(0.175,0.885,0.32,1.275)">🏆</div>

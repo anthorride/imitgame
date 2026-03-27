@@ -58,11 +58,11 @@ let state = {
   salonId:null, salonCode:null, playerId:null, isHost:false,
   players:[],
   videoIds:[], videoCount:5, lobbyDiff:'tous',
-  currentRound:0, currentTurnIndex:0,
+  currentRound:0,
   voteQueue:[], voteQueueIndex:0, hasVotedThisPerf:false,
   realtimeChannel:null, pollInterval:null,
-  // Audio vote collectif
   cvoteAudio:null,
+  advancingVote:false, liveVotesPollInterval:null,
 };
 
 let currentFilter='tous', randomDiff='tous';
@@ -601,10 +601,10 @@ function copyCode(){navigator.clipboard.writeText(state.salonCode).then(()=>show
 
 async function leaveSalon(){
   if(state.playerId)await db.from('players').delete().eq('id',state.playerId);
+  stopLiveVotesPoll();
   unsubscribeRealtime();
   state.salonId=null;state.salonCode=null;state.playerId=null;
-  state.isHost=false;state.isMulti=false;
-  // Arrête l'audio vote
+  state.isHost=false;state.isMulti=false;state.advancingVote=false;
   if(state.cvoteAudio){state.cvoteAudio.pause();state.cvoteAudio=null;}
   goHome();
 }
@@ -629,10 +629,36 @@ function subscribeToSalon(){
     const voteIndex=salon.current_vote_index||0;
     const changed=salon.status!==lastStatus||playedCount!==lastPlayedCount||voteIndex!==lastVoteIndex;
     lastStatus=salon.status;lastPlayedCount=playedCount;lastVoteIndex=voteIndex;
-    if(changed){
-      if(document.getElementById('screen-waiting').classList.contains('active'))refreshPlayersList();
-      checkAndProgress(salon,players);
+
+    if(document.getElementById('screen-waiting').classList.contains('active'))refreshPlayersList();
+
+    // Mise à jour temps réel de l'écran d'attente après soumission
+    if(salon.status==='playing'&&document.getElementById('phase-waiting-others').classList.contains('active')){
+      updateWaitingProgress(players);
     }
+
+    // Hôte : vérifier si tous ont voté → avancer
+    if(salon.status==='voting'&&state.isHost&&!state.advancingVote&&state.voteQueue?.length>0){
+      const currentPerf=state.voteQueue[voteIndex];
+      if(currentPerf){
+        const nonPerformerCount=state.players.length-1;
+        if(nonPerformerCount<=0){
+          state.advancingVote=true;
+          setTimeout(()=>doAdvanceVote(voteIndex),2000);
+        } else {
+          const{count}=await db.from('votes')
+            .select('*',{count:'exact',head:true})
+            .eq('salon_id',state.salonId)
+            .eq('target_id',currentPerf.player_id);
+          if((count||0)>=nonPerformerCount){
+            state.advancingVote=true;
+            setTimeout(()=>doAdvanceVote(voteIndex),2000);
+          }
+        }
+      }
+    }
+
+    if(changed)checkAndProgress(salon,players);
   },2000);
 
   state.realtimeChannel=db.channel(`salon-${state.salonId}`)
@@ -663,6 +689,7 @@ function subscribeToSalon(){
 function unsubscribeRealtime(){
   if(state.realtimeChannel){db.removeChannel(state.realtimeChannel);state.realtimeChannel=null;}
   if(state.pollInterval){clearInterval(state.pollInterval);state.pollInterval=null;}
+  stopLiveVotesPoll();
 }
 
 // ─────────────────────────────────────────────────────
@@ -678,54 +705,53 @@ async function checkAndProgress(salon,players){
     return;
   }
 
-  if(salon.status==='playing'||salon.status==='next_round'){
+  // ── Phase 1 : IMITATION SIMULTANÉE ──
+  if(salon.status==='playing'){
+    const myPlayer=players.find(p=>p.id===state.playerId);
     const allPlayed=players.every(p=>p.has_played);
     if(allPlayed){
       if(state.isHost)await db.from('salons').update({status:'voting',current_vote_index:0}).eq('id',state.salonId);
       return;
     }
-    const nextPlayer=players.find(p=>!p.has_played);
-    if(!nextPlayer)return;
-    const isMyTurn=nextPlayer.id===state.playerId;
-    const myPlayer=players.find(p=>p.id===state.playerId);
-    if(isMyTurn){
-      if(!document.getElementById('screen-game').classList.contains('active')||
-         document.getElementById('phase-waiting-others').classList.contains('active')){
-        const videoId=state.videoIds[state.currentRound];
-        const video=VIDEOS.find(v=>v.id===videoId);
-        if(!video){showToast('Vidéo introuvable 😕');return;}
-        state.currentVideo=video;loadGameScreen();
-      }
-    } else if(myPlayer?.has_played){
-      if(allPlayed&&state.isHost){
-        await db.from('salons').update({status:'voting',current_vote_index:0}).eq('id',state.salonId);
-        return;
-      }
+    if(myPlayer?.has_played){
+      // Déjà soumis → écran d'attente avec liste en temps réel
       if(document.getElementById('screen-game').classList.contains('active')){
         showPhase('phase-waiting-others');
-        const prog=document.getElementById('phase-waiting-progress');
-        if(prog)prog.innerHTML=players.map(p=>`
-          <div style="display:flex;align-items:center;gap:8px;padding:6px 0;font-size:13px;color:var(--text-muted)">
-            <span>${p.avatar}</span><span>${escapeHtml(p.pseudo)}</span>
-            <span style="margin-left:auto">${p.has_played?'✅':'⏳'}</span>
-          </div>`).join('');
       }
-    } else {
-      if(document.getElementById('screen-waiting').classList.contains('active')){
-        const gc=document.getElementById('guest-controls');
-        if(gc)gc.innerHTML=`<p class="waiting-hint">⏳ La partie a commencé ! En attente de ton tour...</p><div class="waiting-spinner"></div>`;
-      }
+      updateWaitingProgress(players);
+      return;
+    }
+    // Pas encore joué → charger l'écran de jeu
+    const onGame=document.getElementById('screen-game').classList.contains('active');
+    const onWaiting=document.getElementById('phase-waiting-others').classList.contains('active');
+    if(!onGame||onWaiting){
+      const videoId=state.videoIds[state.currentRound];
+      const video=VIDEOS.find(v=>v.id===videoId);
+      if(!video){showToast('Vidéo introuvable 😕');return;}
+      state.currentVideo=video;loadGameScreen();
     }
     return;
   }
 
+  // ── Phase 2 : VOTE SYNCHRONISÉ ──
   if(salon.status==='voting'){
-    const newVoteIndex=salon.current_vote_index||0;
+    const dbVoteIndex=salon.current_vote_index||0;
     if(!document.getElementById('screen-collective-vote').classList.contains('active')){
-      await loadCollectiveVoteScreen();
-    } else if(newVoteIndex!==state.voteQueueIndex){
-      state.voteQueueIndex=newVoteIndex;state.hasVotedThisPerf=false;
+      await loadCollectiveVoteScreen(dbVoteIndex);
+    } else if(dbVoteIndex!==state.voteQueueIndex){
+      state.voteQueueIndex=dbVoteIndex;
+      state.hasVotedThisPerf=false;
+      state.advancingVote=false;
       showCollectiveVote();
+    }
+    return;
+  }
+
+  // ── Phase 3 : CLASSEMENT MANCHE ──
+  if(salon.status==='round_results'){
+    stopLiveVotesPoll();
+    if(!document.getElementById('screen-round-results').classList.contains('active')){
+      showRoundResults(players);
     }
     return;
   }
@@ -739,7 +765,9 @@ async function checkAndProgress(salon,players){
 async function startMultiGame(){
   const{data:players}=await db.from('players').select('*').eq('salon_id',state.salonId).order('created_at');
   state.players=players||[];
-  await db.from('salons').update({status:'playing',current_round:0}).eq('id',state.salonId);
+  state.advancingVote=false;
+  await db.from('players').update({has_played:false,score:0}).eq('salon_id',state.salonId);
+  await db.from('salons').update({status:'playing',current_round:0,current_vote_index:0}).eq('id',state.salonId);
 }
 
 function leaveGame(){if(state.isMulti)leaveSalon();else goPrep();}
@@ -755,15 +783,15 @@ async function submitPerformance(){
     reader.onloadend=()=>resolve(reader.result);
     reader.readAsDataURL(state.audioBlob);
   });
-  console.log('submitPerformance round:', state.currentRound, 'player:', state.playerId);
   await db.from('performances').insert({
     salon_id:state.salonId,player_id:state.playerId,
     round_index:state.currentRound,audio_url:base64
   });
   await db.from('players').update({has_played:true}).eq('id',state.playerId);
   showToast('Performance envoyée ! ✅');
-  const{data:players}=await db.from('players').select('*').eq('salon_id',state.salonId);
+  const{data:players}=await db.from('players').select('*').eq('salon_id',state.salonId).order('created_at');
   state.players=players||[];
+  updateWaitingProgress(state.players);
   const allPlayed=state.players.every(p=>p.has_played);
   if(allPlayed&&state.isHost)await db.from('salons').update({status:'voting',current_vote_index:0}).eq('id',state.salonId);
 }
@@ -771,150 +799,226 @@ async function submitPerformance(){
 // ─────────────────────────────────────────────────────
 // VOTE COLLECTIF
 // ─────────────────────────────────────────────────────
-async function loadCollectiveVoteScreen(){
+async function loadCollectiveVoteScreen(startIndex=0){
   const{data:perfs}=await db.from('performances')
-    .select('*, players(pseudo,avatar,id)')
+    .select('*, players(pseudo,avatar,id,created_at)')
     .eq('salon_id',state.salonId)
     .eq('round_index',state.currentRound);
 
-  console.log('voteQueue loaded:', perfs, 'currentRound:', state.currentRound, 'myPlayerId:', state.playerId);
-  // ✅ Filtre : on ne montre PAS sa propre performance
-  state.voteQueue = (perfs||[]).filter(p => p.player_id !== state.playerId);
-  state.voteQueueIndex = 0;
-  state.hasVotedThisPerf = false;
+  // Ordonnées selon l'ordre d'arrivée des joueurs → cohérent pour tous
+  const orderedPlayers=[...state.players].sort((a,b)=>new Date(a.created_at)-new Date(b.created_at));
+  state.voteQueue=orderedPlayers
+    .map(p=>(perfs||[]).find(perf=>perf.player_id===p.id))
+    .filter(Boolean);
+  state.voteQueueIndex=startIndex;
+  state.hasVotedThisPerf=false;
 
-  if(state.voteQueue.length === 0){
-    // Pas de performances à voter (solo dans le salon ?) → passe au round suivant
-    if(state.isHost) advanceRound();
+  if(state.voteQueue.length===0){
+    if(state.isHost)await doAdvanceVote(startIndex);
     return;
   }
-
   showCollectiveVote();
 }
 
 function showCollectiveVote(){
-  // Arrête l'audio précédent
-  if(state.cvoteAudio){ state.cvoteAudio.pause(); state.cvoteAudio=null; }
-  const cvVideo = document.getElementById('cvote-video');
+  if(state.cvoteAudio){state.cvoteAudio.pause();state.cvoteAudio=null;}
+  stopLiveVotesPoll();
+  const cvVideo=document.getElementById('cvote-video');
   cvVideo.pause();
-  cvVideo.removeEventListener('timeupdate', updateCvoteProgress);
+  cvVideo.removeEventListener('timeupdate',updateCvoteProgress);
 
-  if(state.voteQueueIndex >= state.voteQueue.length){
-    if(state.isHost){
-      advanceRound();
-    } else {
-      document.getElementById('cvote-vote-section').classList.add('hidden');
-      document.getElementById('cvote-result-section').classList.add('hidden');
-      document.getElementById('cvote-player-info').innerHTML =
-        '<span style="color:var(--text-muted);font-size:14px">⏳ En attente du round suivant...</span>';
-    }
-    return;
-  }
+  if(state.voteQueueIndex>=state.voteQueue.length)return;
 
-  const perf   = state.voteQueue[state.voteQueueIndex];
-  const player = perf.players;
+  const perf=state.voteQueue[state.voteQueueIndex];
+  const player=perf.players;
+  const isMyPerf=perf.player_id===state.playerId;
 
-  document.getElementById('cvote-avatar').textContent  = state.avatar;
-  document.getElementById('cvote-pseudo').textContent  = state.pseudo;
-  document.getElementById('cvote-score').textContent   = state.score;
-  document.getElementById('cvote-current').textContent = state.voteQueueIndex + 1;
-  document.getElementById('cvote-total').textContent   = state.voteQueue.length;
-  document.getElementById('cvote-round').textContent   = state.currentRound + 1;
-
-  document.getElementById('cvote-player-info').innerHTML = `
+  // En-tête
+  document.getElementById('cvote-avatar').textContent=state.avatar;
+  document.getElementById('cvote-pseudo').textContent=state.pseudo;
+  document.getElementById('cvote-score').textContent=state.score;
+  document.getElementById('cvote-current').textContent=state.voteQueueIndex+1;
+  document.getElementById('cvote-total').textContent=state.voteQueue.length;
+  document.getElementById('cvote-round').textContent=state.currentRound+1;
+  document.getElementById('cvote-player-info').innerHTML=`
     <span class="cvote-player-avatar">${player?.avatar||'🎭'}</span>
-    <span class="cvote-player-name">${escapeHtml(player?.pseudo||'?')}</span>`;
+    <span class="cvote-player-name">${escapeHtml(player?.pseudo||'?')}</span>
+    ${isMyPerf?'<span style="color:var(--yellow);font-size:12px;margin-left:8px">👈 C\'est toi !</span>':''}`;
 
-  // Charge la vidéo originale
-  const videoId = state.videoIds[state.currentRound];
-  const video   = VIDEOS.find(v => v.id === videoId);
-  cvVideo.muted = true;
-  if(video){ cvVideo.src = video.url; cvVideo.load(); }
+  // Vidéo originale
+  const videoId=state.videoIds[state.currentRound];
+  const video=VIDEOS.find(v=>v.id===videoId);
+  cvVideo.muted=true;
+  if(video){cvVideo.src=video.url;cvVideo.load();}
 
-  // Charge l'audio via new Audio() — plus fiable que <audio> pour CORS
-  if(perf.audio_url && perf.audio_url.length > 0){
-    state.cvoteAudio = new Audio(perf.audio_url);
-    state.cvoteAudio.preload = 'auto';
+  // Audio de la perf (pas pour le performer lui-même)
+  if(!isMyPerf&&perf.audio_url&&perf.audio_url.length>0){
+    state.cvoteAudio=new Audio(perf.audio_url);
+    state.cvoteAudio.preload='auto';
   }
 
-  // Sync barre de progression + arrêt audio quand vidéo termine
-  cvVideo.addEventListener('timeupdate', updateCvoteProgress);
-  cvVideo.onended = () => {
-    document.getElementById('btn-cvote-playpause').textContent = '▶';
-    if(state.cvoteAudio) state.cvoteAudio.pause();
+  cvVideo.addEventListener('timeupdate',updateCvoteProgress);
+  cvVideo.onended=()=>{
+    document.getElementById('btn-cvote-playpause').textContent='▶';
+    if(state.cvoteAudio)state.cvoteAudio.pause();
   };
 
-  // Reset contrôles lecteur
-  document.getElementById('btn-cvote-playpause').textContent = '▶';
-  document.getElementById('cvote-progress-fill').style.width = '0%';
-  document.getElementById('cvote-time').textContent = '0:00 / 0:00';
+  document.getElementById('btn-cvote-playpause').textContent='▶';
+  document.getElementById('cvote-progress-fill').style.width='0%';
+  document.getElementById('cvote-time').textContent='0:00 / 0:00';
 
-  // Reset vote — tous les boutons actifs (ce ne sont que des adversaires)
-  document.getElementById('cvote-result-section').classList.add('hidden');
-  document.getElementById('cvote-vote-section').classList.remove('hidden');
-  document.getElementById('cvote-own-msg').classList.add('hidden');
-  const voteButtons = document.getElementById('cvote-vote-buttons');
-  voteButtons.style.opacity = '1';
-  voteButtons.style.pointerEvents = 'auto';
+  // Affichage selon rôle
+  const voteSection=document.getElementById('cvote-vote-section');
+  const votedWaiting=document.getElementById('cvote-voted-waiting');
+  const beingRated=document.getElementById('cvote-being-rated');
+  const ownMsg=document.getElementById('cvote-own-msg');
 
-  state.hasVotedThisPerf = false;
+  beingRated.classList.toggle('hidden',!isMyPerf);
+  voteSection.classList.toggle('hidden',isMyPerf||state.hasVotedThisPerf);
+  votedWaiting.classList.toggle('hidden',!state.hasVotedThisPerf||isMyPerf);
+  ownMsg.classList.add('hidden');
+
+  if(isMyPerf){
+    document.getElementById('cvote-live-votes').innerHTML='';
+    startLiveVotesPoll(perf.player_id);
+  } else {
+    const voteButtons=document.getElementById('cvote-vote-buttons');
+    voteButtons.style.opacity='1';
+    voteButtons.style.pointerEvents='auto';
+  }
+
   showScreen('screen-collective-vote');
 }
 
 async function castCollectiveVote(points){
-  if(state.hasVotedThisPerf) return;
-  const perf = state.voteQueue[state.voteQueueIndex];
-  state.hasVotedThisPerf = true;
+  if(state.hasVotedThisPerf)return;
+  const perf=state.voteQueue[state.voteQueueIndex];
+  state.hasVotedThisPerf=true;
 
-  // Désactive les boutons visuellement
-  const voteButtons = document.getElementById('cvote-vote-buttons');
-  voteButtons.style.opacity = '0.4';
-  voteButtons.style.pointerEvents = 'none';
+  const voteButtons=document.getElementById('cvote-vote-buttons');
+  voteButtons.style.opacity='0.4';
+  voteButtons.style.pointerEvents='none';
 
-  // Enregistre le vote
   await db.from('votes').insert({
-    salon_id: state.salonId, voter_id: state.playerId,
-    target_id: perf.player_id, points
+    salon_id:state.salonId,voter_id:state.playerId,
+    target_id:perf.player_id,points
   });
 
-  // Met à jour le score
-  const target = state.players.find(p => p.id === perf.player_id);
+  const target=state.players.find(p=>p.id===perf.player_id);
   if(target){
-    const newScore = (target.score||0) + points;
-    await db.from('players').update({score: newScore}).eq('id', perf.player_id);
-    target.score = newScore;
+    const newScore=(target.score||0)+points;
+    await db.from('players').update({score:newScore}).eq('id',perf.player_id);
+    target.score=newScore;
   }
 
-  // Affiche le résultat du vote
-  const msgs = {3:{emoji:'🏆',txt:'+30 pts'},1:{emoji:'😄',txt:'+10 pts'},0:{emoji:'😅',txt:'+0 pts'}};
-  document.getElementById('cvote-result-emoji').textContent = msgs[points].emoji;
-  document.getElementById('cvote-result-pts').textContent   = msgs[points].txt;
-  document.getElementById('cvote-result-section').classList.remove('hidden');
-
-  // Cache les boutons de vote, garde le résultat visible 1.5s puis passe automatiquement
+  const msgs={3:{emoji:'🏆',txt:'+30 pts'},1:{emoji:'😄',txt:'+10 pts'},0:{emoji:'😅',txt:'+0 pts'}};
+  document.getElementById('cvote-voted-emoji').textContent=msgs[points].emoji;
+  document.getElementById('cvote-voted-pts').textContent=msgs[points].txt;
   document.getElementById('cvote-vote-section').classList.add('hidden');
-  document.getElementById('cvote-next-ctrl').classList.add('hidden');
-  document.getElementById('cvote-next-waiting').classList.add('hidden');
-
-  setTimeout(() => {
-    state.voteQueueIndex++;
-    state.hasVotedThisPerf = false;
-    showCollectiveVote();
-  }, 1500);
+  document.getElementById('cvote-voted-waiting').classList.remove('hidden');
+  // L'hôte détecte automatiquement via le polling que tous ont voté
 }
 
-async function advanceRound(){
-  const nextRound=state.currentRound+1;
-  if(nextRound>=state.videoIds.length){
+// ─────────────────────────────────────────────────────
+// LIVE VOTES (pour le joueur noté)
+// ─────────────────────────────────────────────────────
+function startLiveVotesPoll(targetId){
+  const knownIds=new Set();
+  state.liveVotesPollInterval=setInterval(async()=>{
+    const{data:votes}=await db.from('votes')
+      .select('*')
+      .eq('salon_id',state.salonId)
+      .eq('target_id',targetId);
+    if(!votes)return;
+    votes.filter(v=>!knownIds.has(v.id)).forEach(vote=>{
+      knownIds.add(vote.id);
+      addLiveVote(vote);
+    });
+  },1500);
+}
+
+function stopLiveVotesPoll(){
+  if(state.liveVotesPollInterval){clearInterval(state.liveVotesPollInterval);state.liveVotesPollInterval=null;}
+}
+
+function addLiveVote(vote){
+  const container=document.getElementById('cvote-live-votes');
+  if(!container)return;
+  const voter=state.players.find(p=>p.id===vote.voter_id)||{};
+  const labels={3:'👍👍 Excellent !',1:'👍 Moyen',0:'👎 Nul'};
+  const pts={3:'+30 pts',1:'+10 pts',0:'+0 pts'};
+  const div=document.createElement('div');
+  div.className='live-vote-entry';
+  div.innerHTML=`
+    <span class="live-vote-avatar">${voter.avatar||'🎭'}</span>
+    <span class="live-vote-pseudo">${escapeHtml(voter.pseudo||'?')}</span>
+    <span class="live-vote-result">${labels[vote.points]||'?'}</span>
+    <span class="live-vote-pts">${pts[vote.points]||''}</span>`;
+  container.appendChild(div);
+}
+
+// ─────────────────────────────────────────────────────
+// AVANCEMENT VOTE (hôte)
+// ─────────────────────────────────────────────────────
+async function doAdvanceVote(currentIndex){
+  const nextIndex=(currentIndex||0)+1;
+  if(!state.voteQueue||nextIndex>=state.voteQueue.length){
+    await db.from('salons').update({status:'round_results'}).eq('id',state.salonId);
+  } else {
+    await db.from('salons').update({current_vote_index:nextIndex}).eq('id',state.salonId);
+  }
+  state.advancingVote=false;
+}
+
+// ─────────────────────────────────────────────────────
+// MANCHE SUIVANTE (bouton hôte)
+// ─────────────────────────────────────────────────────
+async function nextRound(){
+  const nextRoundIndex=state.currentRound+1;
+  if(nextRoundIndex>=state.videoIds.length){
     await db.from('salons').update({status:'finished'}).eq('id',state.salonId);
   } else {
+    state.advancingVote=false;
+    await db.from('votes').delete().eq('salon_id',state.salonId);
     await db.from('players').update({has_played:false}).eq('salon_id',state.salonId);
     await db.from('salons').update({
-      status:'next_round',current_round:nextRound,
+      status:'playing',current_round:nextRoundIndex,
       current_vote_index:0,votes_this_round:0,
-      video_id:state.videoIds[nextRound]
+      video_id:state.videoIds[nextRoundIndex]
     }).eq('id',state.salonId);
   }
+}
+
+// ─────────────────────────────────────────────────────
+// CLASSEMENT MANCHE
+// ─────────────────────────────────────────────────────
+function showRoundResults(players){
+  const sorted=[...players].sort((a,b)=>(b.score||0)-(a.score||0));
+  const medals=['🥇','🥈','🥉'];
+  document.getElementById('round-results-num').textContent=state.currentRound+1;
+  document.getElementById('round-results-list').innerHTML=sorted.map((p,i)=>`
+    <div class="multi-result-row ${p.id===state.playerId?'me':''}">
+      <span class="mr-rank">${medals[i]||`#${i+1}`}</span>
+      <span class="mr-avatar">${p.avatar}</span>
+      <span class="mr-name">${escapeHtml(p.pseudo)}${p.id===state.playerId?' (toi)':''}</span>
+      <span class="mr-score">${p.score||0} pts</span>
+    </div>`).join('');
+  document.getElementById('round-results-host-controls').classList.toggle('hidden',!state.isHost);
+  document.getElementById('round-results-guest-msg').classList.toggle('hidden',state.isHost);
+  showScreen('screen-round-results');
+}
+
+// ─────────────────────────────────────────────────────
+// MISE À JOUR ATTENTE SOUMISSIONS
+// ─────────────────────────────────────────────────────
+function updateWaitingProgress(players){
+  const prog=document.getElementById('phase-waiting-progress');
+  if(!prog)return;
+  prog.innerHTML=players.map(p=>`
+    <div style="display:flex;align-items:center;gap:8px;padding:6px 0;font-size:13px;color:var(--text-muted)">
+      <span>${p.avatar}</span><span>${escapeHtml(p.pseudo)}</span>
+      <span style="margin-left:auto">${p.has_played?'✅':'⏳'}</span>
+    </div>`).join('');
 }
 
 // ─────────────────────────────────────────────────────
@@ -938,6 +1042,7 @@ async function showMultiResults(){
 
 async function playAgainMulti(){
   if(state.isHost){
+    state.advancingVote=false;
     await db.from('players').update({has_played:false,score:0}).eq('salon_id',state.salonId);
     await db.from('votes').delete().eq('salon_id',state.salonId);
     await db.from('performances').delete().eq('salon_id',state.salonId);
