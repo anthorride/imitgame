@@ -582,6 +582,7 @@ async function enterWaitingRoom(salon){
 async function refreshPlayersList(){
   const{data:players}=await db.from('players').select('*').eq('salon_id',state.salonId).order('created_at');
   if(!players)return;
+  console.log('refreshPlayersList:', players.length, 'isHost:', state.isHost);
   state.players=players;
   const list=document.getElementById('players-list');
   list.innerHTML=players.map(p=>`
