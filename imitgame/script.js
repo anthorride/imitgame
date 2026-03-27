@@ -540,6 +540,7 @@ async function joinSalon(){
   const code=document.getElementById('join-code-input').value.trim().toUpperCase();
   if(code.length<4){showJoinError();joiningInProgress=false;return;}
   const{data:salon,error}=await db.from('salons').select('*').eq('code',code).eq('status','waiting').single();
+  console.log('joinSalon: salon trouvé', salon?.id, salon?.code);
   if(error||!salon){showJoinError();joiningInProgress=false;return;}
   const{data:existing}=await db.from('players').select('*').eq('salon_id',salon.id).eq('pseudo',state.pseudo);
   if(existing&&existing.length>0){
@@ -552,6 +553,7 @@ async function joinSalon(){
   const{data:player,error:pe}=await db.from('players').insert({
     salon_id:salon.id,pseudo:state.pseudo,avatar:state.avatar,is_host:false,score:0
   }).select().single();
+  console.log('joinSalon: insert player résultat', player, pe);
   if(pe){showJoinError();joiningInProgress=false;return;}
   state.salonId=salon.id;state.salonCode=salon.code;state.playerId=player.id;
   state.isHost=false;state.isMulti=true;
@@ -582,7 +584,7 @@ async function enterWaitingRoom(salon){
 async function refreshPlayersList(){
   const{data:players}=await db.from('players').select('*').eq('salon_id',state.salonId).order('created_at');
   if(!players)return;
-  console.log('refreshPlayersList:', players.length, 'isHost:', state.isHost);
+  console.log('refreshPlayersList:', players.length, 'isHost:', state.isHost, 'salonId:', state.salonId, 'players:', players.map(p=>p.pseudo));
   state.players=players;
   const list=document.getElementById('players-list');
   list.innerHTML=players.map(p=>`
