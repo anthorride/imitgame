@@ -542,7 +542,9 @@ async function joinSalon(){
   const{data:salon,error}=await db.from('salons').select('*').eq('code',code).eq('status','waiting').single();
   console.log('joinSalon: salon trouvé', salon?.id, salon?.code);
   if(error||!salon){showJoinError();joiningInProgress=false;return;}
+  console.log('joinSalon: check existing player pour pseudo:', state.pseudo, 'salonId:', salon.id);
   const{data:existing}=await db.from('players').select('*').eq('salon_id',salon.id).eq('pseudo',state.pseudo);
+  console.log('joinSalon: existing trouvé:', existing);
   if(existing&&existing.length>0){
     const player=existing[0];
     state.salonId=salon.id;state.salonCode=salon.code;state.playerId=player.id;
