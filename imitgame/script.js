@@ -529,7 +529,12 @@ async function createSalon(){
   state.isHost=true;state.isMulti=true;state.videoIds=videoIds;state.currentRound=0;
   enterWaitingRoom(salon);
 }
-function generateCode(){return Math.random().toString(36).substring(2,8).toUpperCase();}
+function generateCode(){
+  const chars='ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  let code='';
+  for(let i=0;i<6;i++)code+=chars[Math.floor(Math.random()*chars.length)];
+  return code;
+}
 
 // ─────────────────────────────────────────────────────
 // REJOINDRE UN SALON
@@ -1114,6 +1119,18 @@ function stopEverything(){
   if(currentResultAudio){currentResultAudio.pause();currentResultAudio=null;}
   if(state.cvoteAudio){state.cvoteAudio.pause();state.cvoteAudio=null;}
 }
+function shareSalon(){
+  const url=`${window.location.origin}?join=${state.salonCode}`;
+  const text=`Rejoins ma partie ImitGame ! Code: ${state.salonCode}`;
+  if(navigator.share){
+    navigator.share({title:'ImitGame 🎭',text,url}).catch(e=>console.log('Share cancelled'));
+  } else {
+    navigator.clipboard.writeText(`${text}\n${url}`)
+      .then(()=>showToast('Lien copié ! 📋'))
+      .catch(()=>showToast('Code: '+state.salonCode));
+  }
+}
+
 function closeModal(id){document.getElementById(id).classList.add('hidden');}
 function escapeHtml(str){return str.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 function handleSalonUpdate(salon){
@@ -1139,4 +1156,18 @@ document.addEventListener('DOMContentLoaded',()=>{
     }
   });
   showScreen('screen-home');
+  const urlParams=new URLSearchParams(window.location.search);
+  const joinCode=urlParams.get('join');
+  if(joinCode){
+    setTimeout(()=>{
+      if(!state.pseudo){
+        goProfile();
+        showToast('Entre ton pseudo puis rejoins avec le code: '+joinCode);
+      } else {
+        goToLobby();showJoinSalon();
+        document.getElementById('join-code-input').value=joinCode.toUpperCase();
+        showToast('Code pré-rempli ! Clique sur Rejoindre 🚀');
+      }
+    },500);
+  }
 });
