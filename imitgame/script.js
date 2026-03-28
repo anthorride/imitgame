@@ -601,16 +601,23 @@ async function enterWaitingRoom(salon){
   if(currentSalon&&currentSalon.status!=='waiting')handleSalonUpdate(currentSalon);
 }
 
+function getDisconnectStatus(player){
+  if(!player.updated_at)return false;
+  return(new Date()-new Date(player.updated_at))/1000>15;
+}
+
 async function refreshPlayersList(){
   const{data:players}=await db.from('players').select('*').eq('salon_id',state.salonId).order('created_at');
   if(!players)return;
-  console.log('refreshPlayersList:', players.length, 'isHost:', state.isHost, 'salonId:', state.salonId, 'players:', players.map(p=>p.pseudo));
   state.players=players;
+  const now=new Date();
+  players.forEach(p=>{p.disconnected=p.updated_at&&(now-new Date(p.updated_at))/1000>15;});
   const list=document.getElementById('players-list');
   list.innerHTML=players.map(p=>`
     <div class="waiting-player">
       <span class="waiting-player-avatar">${p.avatar}</span>
       <span class="waiting-player-name">${escapeHtml(p.pseudo)}${p.is_host?' 👑':''}</span>
+      <span class="player-status-dot">${p.disconnected?'🔴 <small style="color:var(--text-muted)">déconnecté</small>':'🟢'}</span>
     </div>`).join('');
   document.getElementById('players-count').textContent=`(${players.length})`;
   if(state.isHost){
@@ -642,6 +649,9 @@ function subscribeToSalon(){
 
   const pollInterval=setInterval(async()=>{
     if(!state.salonId){clearInterval(pollInterval);return;}
+    if(state.playerId){
+      db.from('players').update({updated_at:new Date().toISOString()}).eq('id',state.playerId);
+    }
     const[salonRes,playersRes]=await Promise.all([
       db.from('salons').select('*').eq('id',state.salonId).single(),
       db.from('players').select('*').eq('salon_id',state.salonId).order('created_at')
@@ -723,6 +733,25 @@ async function checkAndProgress(salon,players){
   if(!salon||!players)return;
   if(salon.video_ids)state.videoIds=JSON.parse(salon.video_ids);
   state.currentRound=salon.current_round||0;
+
+  // ── Détection déconnexion ──
+  const now=new Date();
+  const host=players.find(p=>p.is_host);
+  if(host&&host.updated_at&&host.id!==state.playerId){
+    const hostOffline=(now-new Date(host.updated_at))/1000>30;
+    if(hostOffline){
+      showToast('⚠️ L\'hôte a quitté la partie. La partie va s\'arrêter.');
+      setTimeout(()=>goHome(),3000);
+      return;
+    }
+  }
+  if(salon.status==='playing'){
+    const nextPlayer=players.find(p=>!p.has_played&&p.id!==state.playerId);
+    if(nextPlayer&&nextPlayer.updated_at){
+      const offline=(now-new Date(nextPlayer.updated_at))/1000>30;
+      if(offline)showToast('⚠️ '+escapeHtml(nextPlayer.pseudo)+' semble avoir quitté la partie...');
+    }
+  }
 
   if(salon.status==='waiting'){
     if(document.getElementById('screen-waiting').classList.contains('active'))refreshPlayersList();
@@ -1046,11 +1075,14 @@ function showRoundResults(players){
 function updateWaitingProgress(players){
   const prog=document.getElementById('phase-waiting-progress');
   if(!prog)return;
-  prog.innerHTML=players.map(p=>`
-    <div style="display:flex;align-items:center;gap:8px;padding:6px 0;font-size:13px;color:var(--text-muted)">
-      <span>${p.avatar}</span><span>${escapeHtml(p.pseudo)}</span>
+  const now=new Date();
+  prog.innerHTML=players.map(p=>{
+    const disc=p.updated_at&&(now-new Date(p.updated_at))/1000>15;
+    return`<div style="display:flex;align-items:center;gap:8px;padding:6px 0;font-size:13px;color:var(--text-muted)">
+      <span>${disc?'🔴':'🟢'}</span><span>${p.avatar}</span><span>${escapeHtml(p.pseudo)}</span>
       <span style="margin-left:auto">${p.has_played?'✅':'⏳'}</span>
-    </div>`).join('');
+    </div>`;
+  }).join('');
 }
 
 // ─────────────────────────────────────────────────────
