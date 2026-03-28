@@ -70,6 +70,16 @@ let joiningInProgress=false;
 let currentResultAudio=null;
 
 // ─────────────────────────────────────────────────────
+// ÉTAT LOCAL MULTIPLAYER
+// ─────────────────────────────────────────────────────
+let localGame = {
+  active:false, players:[], videoIds:[], videoCount:3, diff:'tous',
+  currentRound:0, performances:[], currentPlayerIndex:0,
+  voteQueue:[], voteQueueIndex:0, currentVoters:[], currentVoterStep:0,
+  currentPerf:null, votes:{}, handoffCallback:null, pendingAvatar:'🎭'
+};
+
+// ─────────────────────────────────────────────────────
 // NAVIGATION
 // ─────────────────────────────────────────────────────
 function showScreen(id){
@@ -255,17 +265,22 @@ function selectVideo(video,isRandom){state.currentVideo=video;state.isRandom=isR
 // ─────────────────────────────────────────────────────
 function loadGameScreen(){
   const v=document.getElementById('main-video');
-  document.getElementById('game-avatar').textContent=state.avatar;
-  document.getElementById('game-pseudo').textContent=state.pseudo;
-  document.getElementById('game-score').textContent=state.score;
-  document.getElementById('random-badge').classList.toggle('hidden',!state.isRandom||state.isMulti);
-  document.getElementById('multi-badge').classList.toggle('hidden',!state.isMulti);
-  if(state.isMulti){
-    document.getElementById('multi-round').textContent=state.currentRound+1;
-    document.getElementById('multi-total').textContent=state.videoIds.length;
+  const isLocal=localGame.active;
+  const lp=isLocal?localGame.players[localGame.currentPlayerIndex]:null;
+  document.getElementById('game-avatar').textContent=isLocal?lp.avatar:state.avatar;
+  document.getElementById('game-pseudo').textContent=isLocal?lp.pseudo:state.pseudo;
+  document.getElementById('game-score').textContent=isLocal?lp.score:state.score;
+  document.getElementById('random-badge').classList.toggle('hidden',!state.isRandom||state.isMulti||isLocal);
+  document.getElementById('multi-badge').classList.toggle('hidden',!state.isMulti&&!isLocal);
+  document.getElementById('local-badge').classList.toggle('hidden',!isLocal);
+  if(state.isMulti||isLocal){
+    const round=isLocal?localGame.currentRound:state.currentRound;
+    const total=isLocal?localGame.videoIds.length:state.videoIds.length;
+    document.getElementById('multi-round').textContent=round+1;
+    document.getElementById('multi-total').textContent=total;
     document.getElementById('multi-video-name').textContent=state.currentVideo.title;
-    document.getElementById('btn-submit').textContent='Soumettre 👥';
-    document.getElementById('btn-submit').onclick=submitPerformance;
+    document.getElementById('btn-submit').textContent=isLocal?'Soumettre 👍':'Soumettre 👥';
+    document.getElementById('btn-submit').onclick=isLocal?submitLocalPerformance:submitPerformance;
   } else {
     document.getElementById('btn-submit').textContent='Voter 👍';
     document.getElementById('btn-submit').onclick=goVote;
@@ -608,6 +623,7 @@ async function refreshPlayersList(){
 function copyCode(){navigator.clipboard.writeText(state.salonCode).then(()=>showToast('Code copié ! 📋'));}
 
 async function leaveSalon(){
+  if(localGame.active){confirmLeaveLocal();return;}
   if(state.playerId)await db.from('players').delete().eq('id',state.playerId);
   stopLiveVotesPoll();
   unsubscribeRealtime();
@@ -778,7 +794,10 @@ async function startMultiGame(){
   await db.from('salons').update({status:'playing',current_round:0,current_vote_index:0}).eq('id',state.salonId);
 }
 
-function leaveGame(){if(state.isMulti)leaveSalon();else goPrep();}
+function leaveGame(){
+  if(localGame.active){if(confirm('Quitter la partie locale ?'))confirmLeaveLocal();return;}
+  if(state.isMulti)leaveSalon();else goPrep();
+}
 
 // ─────────────────────────────────────────────────────
 // SOUMETTRE LA PERFORMANCE
@@ -900,6 +919,7 @@ function showCollectiveVote(){
 }
 
 async function castCollectiveVote(points){
+  if(localGame.active){castLocalVote(points);return;}
   if(state.hasVotedThisPerf)return;
   const perf=state.voteQueue[state.voteQueueIndex];
   state.hasVotedThisPerf=true;
@@ -1142,7 +1162,7 @@ function handleSalonUpdate(salon){
 // INIT
 // ─────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded',()=>{
-  loadFromStorage();updateHomeProfile();refreshLeaderboard();
+  loadFromStorage();loadVideoTitles();updateHomeProfile();refreshLeaderboard();
   const style=document.createElement('style');
   style.textContent=`@keyframes countpop{from{transform:scale(0.4);opacity:0}to{transform:scale(1);opacity:1}}@keyframes pop{from{transform:scale(0)}to{transform:scale(1)}}`;
   document.head.appendChild(style);
@@ -1156,6 +1176,7 @@ document.addEventListener('DOMContentLoaded',()=>{
     }
   });
   showScreen('screen-home');
+  buildLocalAvatarGrid();
   const urlParams=new URLSearchParams(window.location.search);
   const joinCode=urlParams.get('join');
   if(joinCode){
@@ -1171,3 +1192,388 @@ document.addEventListener('DOMContentLoaded',()=>{
     },500);
   }
 });
+
+// ═══════════════════════════════════════════════════════
+// LOCAL MULTIPLAYER
+// ═══════════════════════════════════════════════════════
+
+function showLocalMulti(){
+  if(!state.pseudo){goProfile();return;}
+  localGame={
+    active:false, players:[], videoIds:[], videoCount:3, diff:'tous',
+    currentRound:0, performances:[], currentPlayerIndex:0,
+    voteQueue:[], voteQueueIndex:0, currentVoters:[], currentVoterStep:0,
+    currentPerf:null, votes:{}, handoffCallback:null, pendingAvatar:'🎭'
+  };
+  document.getElementById('local-setup-avatar').textContent=state.avatar;
+  document.getElementById('local-setup-pseudo').textContent=state.pseudo;
+  document.getElementById('local-video-count-display').textContent=localGame.videoCount;
+  document.querySelectorAll('#local-diff-filters .filter-btn').forEach((b,i)=>b.classList.toggle('active',i===0));
+  buildLocalAvatarGrid();
+  renderLocalPlayersList();
+  showScreen('screen-local-setup');
+}
+
+function buildLocalAvatarGrid(){
+  const grid=document.getElementById('local-avatar-grid');
+  if(!grid)return;
+  grid.innerHTML='';
+  AVATARS.forEach(emoji=>{
+    const btn=document.createElement('button');
+    btn.className='local-avatar-btn'+(emoji===localGame.pendingAvatar?' active':'');
+    btn.textContent=emoji;
+    btn.dataset.emoji=emoji;
+    btn.onclick=()=>selectLocalAvatar(emoji);
+    grid.appendChild(btn);
+  });
+}
+
+function selectLocalAvatar(emoji){
+  localGame.pendingAvatar=emoji;
+  const preview=document.getElementById('local-avatar-preview');
+  if(preview)preview.textContent=emoji;
+  document.querySelectorAll('.local-avatar-btn').forEach(b=>b.classList.toggle('active',b.dataset.emoji===emoji));
+}
+
+function addLocalPlayer(){
+  const input=document.getElementById('local-player-input');
+  const pseudo=input.value.trim();
+  if(!pseudo){input.style.borderColor='var(--red)';return;}
+  if(localGame.players.find(p=>p.pseudo===pseudo)){showToast('Ce pseudo est déjà pris !');return;}
+  localGame.players.push({pseudo,avatar:localGame.pendingAvatar||'🎭',score:0});
+  input.value='';input.style.borderColor='';
+  localGame.pendingAvatar='🎭';
+  document.querySelectorAll('.local-avatar-btn').forEach(b=>b.classList.remove('active'));
+  const firstBtn=document.querySelector('.local-avatar-btn');
+  if(firstBtn){firstBtn.classList.add('active');}
+  const preview=document.getElementById('local-avatar-preview');
+  if(preview)preview.textContent='🎭';
+  renderLocalPlayersList();
+}
+
+function removeLocalPlayer(index){
+  localGame.players.splice(index,1);
+  renderLocalPlayersList();
+}
+
+function renderLocalPlayersList(){
+  const list=document.getElementById('local-players-list');
+  const count=document.getElementById('local-players-count');
+  if(!list)return;
+  list.innerHTML=localGame.players.map((p,i)=>`
+    <div class="local-player-row">
+      <span style="font-size:22px">${p.avatar}</span>
+      <span class="local-player-name">${escapeHtml(p.pseudo)}</span>
+      <button class="btn-remove-player" onclick="removeLocalPlayer(${i})">✕</button>
+    </div>`).join('');
+  if(count)count.textContent=`(${localGame.players.length})`;
+  const btn=document.getElementById('btn-start-local');
+  if(btn)btn.disabled=localGame.players.length<2;
+}
+
+function changeLocalVideoCount(delta){
+  localGame.videoCount=Math.max(1,Math.min(20,localGame.videoCount+delta));
+  document.getElementById('local-video-count-display').textContent=localGame.videoCount;
+}
+
+function setLocalDiff(diff,btn){
+  localGame.diff=diff;
+  document.querySelectorAll('#local-diff-filters .filter-btn').forEach(b=>b.classList.remove('active'));
+  if(btn)btn.classList.add('active');
+}
+
+function startLocalGame(){
+  if(localGame.players.length<2){showToast('Il faut au moins 2 joueurs !');return;}
+  let pool=localGame.diff==='tous'?VIDEOS:VIDEOS.filter(v=>getDifficulty(durationCache[v.id])===localGame.diff);
+  if(!pool.length)pool=VIDEOS;
+  const shuffled=[...pool].sort(()=>Math.random()-0.5);
+  const picked=shuffled.slice(0,Math.min(localGame.videoCount,shuffled.length));
+  localGame.videoIds=picked.map(v=>v.id);
+  localGame.active=true;
+  localGame.currentRound=0;
+  localGame.players.forEach(p=>p.score=0);
+  startLocalRound();
+}
+
+function startLocalRound(){
+  localGame.performances=[];
+  localGame.currentPlayerIndex=0;
+  const player=localGame.players[0];
+  showLocalHandoff(
+    player,'C\'est ton tour !',
+    'Prends l\'appareil et prépare-toi à imiter !',
+    'Je suis prêt ! 🎤',
+    ()=>loadLocalGameScreen()
+  );
+}
+
+function loadLocalGameScreen(){
+  const videoId=localGame.videoIds[localGame.currentRound];
+  const video=VIDEOS.find(v=>v.id===videoId);
+  if(!video){showToast('Vidéo introuvable 😕');return;}
+  state.currentVideo=video;
+  state.isMulti=false;
+  state.isRandom=false;
+  stopEverything();
+  loadGameScreen();
+}
+
+function submitLocalPerformance(){
+  if(!state.audioBlob){showToast('Enregistre d\'abord ton imitation !');return;}
+  const player=localGame.players[localGame.currentPlayerIndex];
+  localGame.performances.push({
+    playerIndex:localGame.currentPlayerIndex,
+    pseudo:player.pseudo,
+    avatar:player.avatar,
+    audioURL:state.audioURL,
+  });
+  state.audioBlob=null;state.audioURL=null;
+  localGame.currentPlayerIndex++;
+  if(localGame.currentPlayerIndex>=localGame.players.length){
+    startLocalVotePhase();
+  } else {
+    const nextPlayer=localGame.players[localGame.currentPlayerIndex];
+    showLocalHandoff(
+      nextPlayer,'C\'est ton tour !',
+      'Prends l\'appareil et prépare-toi à imiter !',
+      'Je suis prêt ! 🎤',
+      ()=>loadLocalGameScreen()
+    );
+  }
+}
+
+// ── VOTE LOCAL ──
+function startLocalVotePhase(){
+  localGame.voteQueue=[...localGame.performances];
+  localGame.voteQueueIndex=0;
+  localGame.votes={};
+  localGame.players.forEach((_,i)=>{localGame.votes[i]=0;});
+  showLocalVote();
+}
+
+function showLocalVote(){
+  if(localGame.voteQueueIndex>=localGame.voteQueue.length){
+    applyLocalVotesToScores();
+    showLocalRoundResults();
+    return;
+  }
+  const perf=localGame.voteQueue[localGame.voteQueueIndex];
+  localGame.currentPerf=perf;
+  localGame.currentVoters=localGame.players.map((_,i)=>i).filter(i=>i!==perf.playerIndex);
+  localGame.currentVoterStep=0;
+  if(localGame.currentVoters.length===0){
+    localGame.voteQueueIndex++;
+    showLocalVote();
+    return;
+  }
+  const firstVoterIdx=localGame.currentVoters[0];
+  const firstVoter=localGame.players[firstVoterIdx];
+  showLocalHandoff(
+    firstVoter,'C\'est ton tour de voter !',
+    `Vote pour la performance de ${escapeHtml(perf.pseudo)}`,
+    'Je suis prêt ! 🗳️',
+    ()=>showLocalVoteScreen(perf)
+  );
+}
+
+function showLocalVoteScreen(perf){
+  const voterIdx=localGame.currentVoters[localGame.currentVoterStep];
+  const voter=localGame.players[voterIdx];
+  // Header
+  document.getElementById('cvote-avatar').textContent=voter.avatar;
+  document.getElementById('cvote-pseudo').textContent=voter.pseudo;
+  document.getElementById('cvote-score').textContent=voter.score;
+  document.getElementById('cvote-current').textContent=localGame.voteQueueIndex+1;
+  document.getElementById('cvote-total').textContent=localGame.voteQueue.length;
+  document.getElementById('cvote-round').textContent=localGame.currentRound+1;
+  document.getElementById('cvote-player-info').innerHTML=`
+    <span class="cvote-player-avatar">${perf.avatar}</span>
+    <span class="cvote-player-name">${escapeHtml(perf.pseudo)}</span>`;
+  // Video
+  const videoId=localGame.videoIds[localGame.currentRound];
+  const video=VIDEOS.find(v=>v.id===videoId);
+  const cvVideo=document.getElementById('cvote-video');
+  cvVideo.removeEventListener('timeupdate',updateCvoteProgress);
+  cvVideo.pause();
+  if(state.cvoteAudio){state.cvoteAudio.pause();state.cvoteAudio=null;}
+  cvVideo.muted=true;
+  if(video){cvVideo.src=video.url;cvVideo.load();}
+  if(perf.audioURL){
+    state.cvoteAudio=new Audio(perf.audioURL);
+    state.cvoteAudio.preload='auto';
+  }
+  cvVideo.addEventListener('timeupdate',updateCvoteProgress);
+  cvVideo.onended=()=>{
+    document.getElementById('btn-cvote-playpause').textContent='▶';
+    if(state.cvoteAudio)state.cvoteAudio.pause();
+  };
+  document.getElementById('btn-cvote-playpause').textContent='▶';
+  document.getElementById('cvote-progress-fill').style.width='0%';
+  document.getElementById('cvote-time').textContent='0:00 / 0:00';
+  // Show vote buttons
+  const voteButtons=document.getElementById('cvote-vote-buttons');
+  voteButtons.style.opacity='1';voteButtons.style.pointerEvents='auto';
+  document.getElementById('cvote-vote-section').classList.remove('hidden');
+  document.getElementById('cvote-voted-waiting').classList.add('hidden');
+  document.getElementById('cvote-being-rated').classList.add('hidden');
+  document.getElementById('cvote-own-msg').classList.add('hidden');
+  showScreen('screen-collective-vote');
+}
+
+function castLocalVote(points){
+  const perf=localGame.currentPerf;
+  localGame.votes[perf.playerIndex]=(localGame.votes[perf.playerIndex]||0)+VOTE_POINTS[points];
+  // Show feedback
+  const voteButtons=document.getElementById('cvote-vote-buttons');
+  voteButtons.style.opacity='0.4';voteButtons.style.pointerEvents='none';
+  const msgs={3:{emoji:'🏆',txt:'+30 pts'},1:{emoji:'😄',txt:'+10 pts'},0:{emoji:'😅',txt:'+0 pts'}};
+  document.getElementById('cvote-voted-emoji').textContent=msgs[points].emoji;
+  document.getElementById('cvote-voted-pts').textContent=msgs[points].txt;
+  document.getElementById('cvote-vote-section').classList.add('hidden');
+  document.getElementById('cvote-voted-waiting').classList.remove('hidden');
+  setTimeout(()=>{
+    localGame.currentVoterStep++;
+    if(localGame.currentVoterStep>=localGame.currentVoters.length){
+      localGame.voteQueueIndex++;
+      showLocalVote();
+    } else {
+      const nextVoterIdx=localGame.currentVoters[localGame.currentVoterStep];
+      const nextVoter=localGame.players[nextVoterIdx];
+      showLocalHandoff(
+        nextVoter,'C\'est ton tour de voter !',
+        `Vote pour la performance de ${escapeHtml(perf.pseudo)}`,
+        'Je suis prêt ! 🗳️',
+        ()=>showLocalVoteScreen(perf)
+      );
+    }
+  },900);
+}
+
+function applyLocalVotesToScores(){
+  localGame.players.forEach((p,i)=>{p.score+=(localGame.votes[i]||0);});
+}
+
+function showLocalRoundResults(){
+  const sorted=[...localGame.players].map((p,i)=>({...p,index:i})).sort((a,b)=>b.score-a.score);
+  const medals=['🥇','🥈','🥉'];
+  document.getElementById('round-results-num').textContent=localGame.currentRound+1;
+  document.getElementById('round-results-list').innerHTML=sorted.map((p,i)=>`
+    <div class="multi-result-row">
+      <span class="mr-rank">${medals[i]||`#${i+1}`}</span>
+      <span class="mr-avatar">${p.avatar}</span>
+      <span class="mr-name">${escapeHtml(p.pseudo)}</span>
+      <span class="mr-score">${p.score} pts</span>
+    </div>`).join('');
+  const hostCtrl=document.getElementById('round-results-host-controls');
+  hostCtrl.classList.remove('hidden');
+  if(localGame.currentRound+1<localGame.videoIds.length){
+    hostCtrl.innerHTML='<button class="btn btn-primary" onclick="localNextRound()">➡️ Manche suivante</button>';
+  } else {
+    hostCtrl.innerHTML='<button class="btn btn-primary" onclick="showLocalFinalResults()">🏆 Résultats finaux</button>';
+  }
+  document.getElementById('round-results-guest-msg').classList.add('hidden');
+  showScreen('screen-round-results');
+}
+
+function localNextRound(){
+  localGame.currentRound++;
+  startLocalRound();
+}
+
+function showLocalFinalResults(){
+  const sorted=[...localGame.players].sort((a,b)=>b.score-a.score);
+  const medals=['🥇','🥈','🥉'];
+  document.getElementById('multi-result-list').innerHTML=sorted.map((p,i)=>`
+    <div class="multi-result-row">
+      <span class="mr-rank">${medals[i]||`#${i+1}`}</span>
+      <span class="mr-avatar">${p.avatar}</span>
+      <span class="mr-name">${escapeHtml(p.pseudo)}</span>
+      <span class="mr-score">${p.score} pts</span>
+    </div>`).join('');
+  document.querySelector('#screen-multi-result .result-actions').innerHTML=`
+    <button class="btn btn-primary" onclick="showLocalMulti()">🔄 Rejouer</button>
+    <button class="btn btn-secondary" onclick="goHome()">🏠 Accueil</button>`;
+  showScreen('screen-multi-result');
+}
+
+// ── HANDOFF ──
+function showLocalHandoff(player,title,sub,btnLabel,callback){
+  document.getElementById('local-handoff-avatar').textContent=player.avatar;
+  document.getElementById('local-handoff-name').textContent=player.pseudo;
+  document.getElementById('local-handoff-title').textContent=title;
+  document.getElementById('local-handoff-sub').textContent=sub;
+  document.getElementById('local-handoff-btn').textContent=btnLabel;
+  localGame.handoffCallback=callback;
+  showScreen('screen-local-handoff');
+}
+
+function localHandoffReady(){
+  if(localGame.handoffCallback)localGame.handoffCallback();
+}
+
+function confirmLeaveLocal(){
+  stopEverything();
+  if(state.cvoteAudio){state.cvoteAudio.pause();state.cvoteAudio=null;}
+  const cvVideo=document.getElementById('cvote-video');
+  if(cvVideo)cvVideo.pause();
+  const keepPlayers=localGame.players.map(p=>({pseudo:p.pseudo,avatar:p.avatar,score:0}));
+  const keepVideoCount=localGame.videoCount;
+  const keepDiff=localGame.diff;
+  localGame={
+    active:false,players:keepPlayers,videoIds:[],videoCount:keepVideoCount,diff:keepDiff,
+    currentRound:0,performances:[],currentPlayerIndex:0,
+    voteQueue:[],voteQueueIndex:0,currentVoters:[],currentVoterStep:0,
+    currentPerf:null,votes:{},handoffCallback:null,pendingAvatar:'🎭'
+  };
+  renderLocalPlayersList();
+  document.getElementById('local-video-count-display').textContent=localGame.videoCount;
+  showScreen('screen-local-setup');
+}
+
+// ═══════════════════════════════════════════════════════
+// TITRES VIDÉOS ÉDITABLES
+// ═══════════════════════════════════════════════════════
+
+function loadVideoTitles(){
+  const saved=JSON.parse(localStorage.getItem('imitgame_video_titles')||'{}');
+  VIDEOS.forEach(v=>{if(saved[v.id])v.title=saved[v.id];});
+}
+
+function goAdmin(){
+  document.getElementById('admin-login-section').classList.remove('hidden');
+  document.getElementById('admin-panel-section').classList.add('hidden');
+  document.getElementById('admin-password').value='';
+  document.getElementById('admin-error').classList.add('hidden');
+  showScreen('screen-admin');
+}
+
+function checkAdminPassword(){
+  if(document.getElementById('admin-password').value==='imitgame2024'){
+    document.getElementById('admin-login-section').classList.add('hidden');
+    buildAdminPanel();
+    document.getElementById('admin-panel-section').classList.remove('hidden');
+  } else {
+    document.getElementById('admin-error').classList.remove('hidden');
+  }
+}
+
+function buildAdminPanel(){
+  const list=document.getElementById('admin-video-list');
+  list.innerHTML=VIDEOS.map(v=>`
+    <div class="admin-video-row">
+      <span class="admin-video-id">${v.id}</span>
+      <input class="admin-title-input" data-id="${v.id}" value="${escapeHtml(v.title)}" type="text" maxlength="60" />
+    </div>`).join('');
+}
+
+function saveVideoTitles(){
+  const saved={};
+  document.querySelectorAll('.admin-title-input').forEach(input=>{
+    const id=input.dataset.id;
+    const title=input.value.trim();
+    if(title)saved[id]=title;
+  });
+  localStorage.setItem('imitgame_video_titles',JSON.stringify(saved));
+  VIDEOS.forEach(v=>{if(saved[v.id])v.title=saved[v.id];});
+  showToast('Titres sauvegardés ! ✅');
+}
