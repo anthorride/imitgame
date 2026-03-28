@@ -1557,23 +1557,47 @@ function checkAdminPassword(){
   }
 }
 
-function buildAdminPanel(){
-  const list=document.getElementById('admin-video-list');
-  list.innerHTML=VIDEOS.map(v=>`
-    <div class="admin-video-row">
-      <span class="admin-video-id">${v.id}</span>
-      <input class="admin-title-input" data-id="${v.id}" value="${escapeHtml(v.title)}" type="text" maxlength="60" />
-    </div>`).join('');
+function buildAdminPanel(){buildAdminVideoList();}
+
+function buildAdminVideoList(){
+  const grid=document.getElementById('admin-video-list');
+  grid.innerHTML='';
+  VIDEOS.forEach(video=>{
+    const card=document.createElement('div');
+    card.className='admin-video-card';
+    card.innerHTML=`
+      <div class="admin-thumb-wrap">
+        <div class="admin-thumb-loading" id="adm-tl-${video.id}"><div class="thumb-spinner"></div></div>
+        <img id="adm-ti-${video.id}" class="admin-thumb-img" style="display:none" />
+        <button class="admin-play-btn" onclick="adminPlayVideo('${video.url}')">▶</button>
+      </div>
+      <input class="admin-title-input" id="adm-inp-${video.id}"
+        type="text" value="${escapeHtml(video.title)}" placeholder="Titre..." maxlength="60" />`;
+    grid.appendChild(card);
+    generateThumbnail(video).then(dataURL=>{
+      document.getElementById('adm-tl-'+video.id)?.remove();
+      const img=document.getElementById('adm-ti-'+video.id);
+      if(img&&dataURL){img.src=dataURL;img.style.display='block';}
+    });
+  });
 }
 
-function saveVideoTitles(){
+function adminPlayVideo(url){
+  const player=document.getElementById('admin-video-player');
+  player.src=url;
+  player.style.display='block';
+  player.play();
+  player.scrollIntoView({behavior:'smooth',block:'center'});
+}
+
+function saveAdminTitles(){
   const saved={};
-  document.querySelectorAll('.admin-title-input').forEach(input=>{
-    const id=input.dataset.id;
-    const title=input.value.trim();
-    if(title)saved[id]=title;
+  VIDEOS.forEach(v=>{
+    const inp=document.getElementById('adm-inp-'+v.id);
+    if(inp){saved[v.id]=inp.value.trim()||v.title;v.title=saved[v.id];}
   });
   localStorage.setItem('imitgame_video_titles',JSON.stringify(saved));
-  VIDEOS.forEach(v=>{if(saved[v.id])v.title=saved[v.id];});
   showToast('Titres sauvegardés ! ✅');
 }
+
+function saveVideoTitles(){saveAdminTitles();}
