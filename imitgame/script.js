@@ -41,6 +41,16 @@ const VIDEOS = [
   { id:"v20", title:"Vidéo #20", url:"https://res.cloudinary.com/dbkza0sdj/video/upload/v1773573541/snaptik_7196344632354016517_v3_i423ez.mp4" },
   { id:"v21", title:"Vidéo #21", url:"https://res.cloudinary.com/dbkza0sdj/video/upload/v1773573543/snaptik_7615208140157570326_v3_h67kbh.mp4" },
   { id:"v22", title:"Vidéo #22", url:"https://res.cloudinary.com/dbkza0sdj/video/upload/v1773573543/snaptik_7598188289492782358_v3_online-video-cutter.com_vetxnh.mp4" },
+  { id:"v23", title:"Vidéo #23", url:"https://res.cloudinary.com/dbkza0sdj/video/upload/v1778615311/snaptik_7624180221591162134_v3_cs4sby.mp4" },
+  { id:"v24", title:"Vidéo #24", url:"https://res.cloudinary.com/dbkza0sdj/video/upload/v1778615311/snaptik_7617385811364941078_v3_iza08e.mp4" },
+  { id:"v25", title:"Vidéo #25", url:"https://res.cloudinary.com/dbkza0sdj/video/upload/v1778615311/snaptik_7622347254858403094_v3_lmtvko.mp4" },
+  { id:"v26", title:"Vidéo #26", url:"https://res.cloudinary.com/dbkza0sdj/video/upload/v1778615311/snaptik_7623506590594862358_v3_fcrsmk.mp4" },
+  { id:"v27", title:"Vidéo #27", url:"https://res.cloudinary.com/dbkza0sdj/video/upload/v1778615312/snaptik_7510534751208639766_v3_gz2odl.mp4" },
+  { id:"v28", title:"Vidéo #28", url:"https://res.cloudinary.com/dbkza0sdj/video/upload/v1778615312/snaptik_7615306339723775234_v3_r9qisd.mp4" },
+  { id:"v29", title:"Vidéo #29", url:"https://res.cloudinary.com/dbkza0sdj/video/upload/v1778615312/snaptik_7624559897174183191_v3_lrn9ry.mp4" },
+  { id:"v30", title:"Vidéo #30", url:"https://res.cloudinary.com/dbkza0sdj/video/upload/v1778615313/snaptik_7614931898090917142_v3_x8ngnl.mp4" },
+  { id:"v31", title:"Vidéo #31", url:"https://res.cloudinary.com/dbkza0sdj/video/upload/v1778615315/snaptik_7477587413284441366_v3_hywoga.mp4" },
+  { id:"v32", title:"Vidéo #32", url:"https://res.cloudinary.com/dbkza0sdj/video/upload/v1778615617/snaptik_7612568823056567574_v3_xtmsev.mp4" },
 ];
 
 const thumbCache    = {};
