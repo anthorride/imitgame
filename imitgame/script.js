@@ -51,6 +51,14 @@ const VIDEOS = [
   { id:"v30", title:"Vidéo #30", url:"https://res.cloudinary.com/dbkza0sdj/video/upload/v1778615313/snaptik_7614931898090917142_v3_x8ngnl.mp4" },
   { id:"v31", title:"Vidéo #31", url:"https://res.cloudinary.com/dbkza0sdj/video/upload/v1778615315/snaptik_7477587413284441366_v3_hywoga.mp4" },
   { id:"v32", title:"Vidéo #32", url:"https://res.cloudinary.com/dbkza0sdj/video/upload/v1778615617/snaptik_7612568823056567574_v3_xtmsev.mp4" },
+  { id:"v33", title:"Vidéo #33", url:"https://res.cloudinary.com/dbkza0sdj/video/upload/v1778704617/snaptik_7373329181448424737_v3_yxfohb.mp4" },
+  { id:"v34", title:"Vidéo #34", url:"https://res.cloudinary.com/dbkza0sdj/video/upload/v1778704617/snaptik_7169216090327796997_v3_xvqhh0.mp4" },
+  { id:"v35", title:"Vidéo #35", url:"https://res.cloudinary.com/dbkza0sdj/video/upload/v1778704617/kaf_malbar_provoque_sans_sucre_i1excs.mp4" },
+  { id:"v36", title:"Vidéo #36", url:"https://res.cloudinary.com/dbkza0sdj/video/upload/v1778704617/snaptik_7621112143106280727_v3_c5qn7z.mp4" },
+  { id:"v37", title:"Vidéo #37", url:"https://res.cloudinary.com/dbkza0sdj/video/upload/v1778704617/snaptik_7479285163604626710_v3_rqqh9y.mp4" },
+  { id:"v38", title:"Vidéo #38", url:"https://res.cloudinary.com/dbkza0sdj/video/upload/v1778704619/snaptik_7372980005573381408_v3_xczq0f.mp4" },
+  { id:"v39", title:"Vidéo #39", url:"https://res.cloudinary.com/dbkza0sdj/video/upload/v1778704619/snaptik_7569247298610351382_v3_qmmvlq.mp4" },
+  { id:"v40", title:"Vidéo #40", url:"https://res.cloudinary.com/dbkza0sdj/video/upload/v1778704619/snaptik_7621854791752338691_v3_exwnas.mp4" },
 ];
 
 const thumbCache    = {};
